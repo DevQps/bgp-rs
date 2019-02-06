@@ -1,8 +1,6 @@
-use bgp_rs::Reader;
 use libflate::gzip::Decoder;
-use mrt_rs::MRTReader;
-use mrt_rs::MRTRecord;
-use mrt_rs::BGP4MP;
+use mrt_rs::bgp4mp::BGP4MP;
+use mrt_rs::Record;
 use std::fs::File;
 use std::io::BufReader;
 use std::io::Cursor;
@@ -17,12 +15,12 @@ fn parse_updates() {
     let decoder = Decoder::new(BufReader::new(file)).unwrap();
 
     // Create a new MRTReader with a Cursor such that we can keep track of the position.
-    let mut reader = MRTReader { stream: decoder };
+    let mut reader = mrt_rs::Reader { stream: decoder };
 
-    // Keep reading entries till the end of the file has been reached.
-    while let Ok(Some(record)) = reader.read() {
+    // Keep reading (Header, Record) tuples till the end of the file has been reached.
+    while let Ok(Some((_, record))) = reader.read() {
         match record {
-            MRTRecord::BGP4MP(x) => match x {
+            Record::BGP4MP(x) => match x {
                 BGP4MP::MESSAGE(x) => {
                     let cursor = Cursor::new(x.message);
                     let mut reader = bgp_rs::Reader { stream: cursor };
@@ -33,7 +31,7 @@ fn parse_updates() {
                     let mut reader = bgp_rs::Reader { stream: cursor };
                     match reader.read() {
                         Err(x) => println!("Error: {}", x),
-                        Ok(x) => continue,
+                        Ok(_) => continue,
                     }
                 }
 
@@ -47,8 +45,8 @@ fn parse_updates() {
 // Tests if it is able to parse a stream of TABLE_DUMP_V2 messages.
 #[test]
 fn parse_rib() {
-    use mrt_rs::TABLE_DUMP_V2;
-    use bgp_rs::Attribute;
+    use bgp_rs::PathAttribute;
+    use mrt_rs::tabledump::TABLE_DUMP_V2;
 
     // Download an update message.
     let file = File::open("res/bview.20100101.0759.gz").unwrap();
@@ -57,45 +55,42 @@ fn parse_rib() {
     let decoder = Decoder::new(BufReader::new(file)).unwrap();
 
     // Create a new MRTReader
-    let mut reader = MRTReader { stream: decoder };
+    let mut reader = mrt_rs::Reader { stream: decoder };
 
-    while let Ok(Some(record)) = reader.read() {
-
+    // Read an MRT (Header, Record) tuple.
+    while let Ok(Some((_, record))) = reader.read() {
         match record {
-            MRTRecord::TABLE_DUMP_V2(x) => {
-                match x
-                {
-                    TABLE_DUMP_V2::RIB_IPV4_UNICAST(x) => {
-                        for entry in x.entries {
-                            let length = entry.attributes.len() as u64;
-                            let mut cursor = Cursor::new(entry.attributes);
+            Record::TABLE_DUMP_V2(x) => match x {
+                TABLE_DUMP_V2::RIB_IPV4_UNICAST(x) => {
+                    for entry in x.entries {
+                        let length = entry.attributes.len() as u64;
+                        let mut cursor = Cursor::new(entry.attributes);
 
-                            while cursor.position() < length {
-                                let result = Attribute::parse(&mut cursor);
-                                match result {
-                                    Err(x) => println!("Error: {}", x),
-                                    Ok(x) => continue,
-                                }
+                        while cursor.position() < length {
+                            let result = PathAttribute::parse(&mut cursor);
+                            match result {
+                                Err(x) => println!("Error: {}", x),
+                                Ok(_) => continue,
                             }
                         }
-                    },
-                    TABLE_DUMP_V2::RIB_IPV6_UNICAST(x) => {
-                        for entry in x.entries {
-                            let length = entry.attributes.len() as u64;
-                            let mut cursor = Cursor::new(entry.attributes);
-
-                            while cursor.position() < length {
-                                let result = Attribute::parse(&mut cursor);
-                                match result {
-                                    Err(x) => println!("Error: {}", x),
-                                    Ok(x) => continue,
-                                }
-                            }
-                        }
-                    },
-                    _ => continue,
+                    }
                 }
-            }
+                TABLE_DUMP_V2::RIB_IPV6_UNICAST(x) => {
+                    for entry in x.entries {
+                        let length = entry.attributes.len() as u64;
+                        let mut cursor = Cursor::new(entry.attributes);
+
+                        while cursor.position() < length {
+                            let result = PathAttribute::parse(&mut cursor);
+                            match result {
+                                Err(x) => println!("Error: {}", x),
+                                Ok(_) => continue,
+                            }
+                        }
+                    }
+                }
+                _ => continue,
+            },
             _ => continue,
         }
     }
