@@ -124,7 +124,7 @@ impl PathAttribute {
 
         // Check if the Extended Length bit is set.
         let length: u16 = if flags & (1 << 4) == 0 {
-            stream.read_u8()? as u16
+            u16::from(stream.read_u8()?)
         } else {
             stream.read_u16::<BigEndian>()?
         };
@@ -148,7 +148,7 @@ impl PathAttribute {
             6 => Ok(PathAttribute::ATOMIC_AGGREGATOR),
             7 => {
                 let asn = if length == 6 {
-                    stream.read_u16::<BigEndian>()? as u32
+                    u32::from(stream.read_u16::<BigEndian>()?)
                 } else {
                     stream.read_u32::<BigEndian>()?
                 };
@@ -157,7 +157,7 @@ impl PathAttribute {
                 Ok(PathAttribute::AGGREGATOR((asn, ip)))
             }
             8 => {
-                let mut communities = Vec::with_capacity((length / 4) as usize);
+                let mut communities = Vec::with_capacity(usize::from(length / 4));
                 for _ in 0..(length / 4) {
                     communities.push(stream.read_u32::<BigEndian>()?)
                 }
@@ -174,7 +174,7 @@ impl PathAttribute {
                 stream, length,
             )?)),
             16 => {
-                let mut communities = Vec::with_capacity((length / 8) as usize);
+                let mut communities = Vec::with_capacity(usize::from(length / 8));
                 for _ in 0..(length / 8) {
                     communities.push(stream.read_u64::<BigEndian>()?)
                 }
@@ -183,7 +183,7 @@ impl PathAttribute {
             }
             32 => {
                 let mut communities: Vec<(u32, u32, u32)> =
-                    Vec::with_capacity((length / 12) as usize);
+                    Vec::with_capacity(usize::from(length / 12));
                 for _ in 0..(length / 12) {
                     let admin = stream.read_u32::<BigEndian>()?;
                     let part1 = stream.read_u32::<BigEndian>()?;
@@ -194,7 +194,7 @@ impl PathAttribute {
                 Ok(PathAttribute::LARGE_COMMUNITY(communities))
             }
             x => {
-                let mut buffer = vec![0; length as usize];
+                let mut buffer = vec![0; usize::from(length)];
                 stream.read_exact(&mut buffer)?;
 
                 Err(Error::new(
@@ -251,7 +251,7 @@ impl ASPath {
         while size != 0 {
             let segment_type = stream.read_u8()?;
             let length = stream.read_u8()?;
-            let mut values: Vec<u32> = Vec::with_capacity(length as usize);
+            let mut values: Vec<u32> = Vec::with_capacity(usize::from(length));
 
             for _ in 0..length {
                 values.push(stream.read_u32::<BigEndian>()?);
@@ -268,7 +268,7 @@ impl ASPath {
                 }
             }
 
-            size -= 2 + (length as u16 * 4);
+            size -= 2 + (u16::from(length) * 4);
         }
 
         Ok(path)
@@ -309,7 +309,7 @@ impl MPReachNLRI {
         let safi = stream.read_u8()?;
 
         let next_hop_length = stream.read_u8()?;
-        let mut next_hop = vec![0; next_hop_length as usize];
+        let mut next_hop = vec![0; usize::from(next_hop_length)];
         stream.read_exact(&mut next_hop)?;
 
         let _reserved = stream.read_u8()?;
@@ -317,14 +317,14 @@ impl MPReachNLRI {
         // ----------------------------
         // Read NLRI
         // ----------------------------
-        let size = length - (5 + next_hop_length) as u16;
+        let size = length - u16::from(5 + next_hop_length);
 
-        let mut buffer = vec![0; size as usize];
+        let mut buffer = vec![0; usize::from(size)];
         stream.read_exact(&mut buffer)?;
         let mut cursor = Cursor::new(buffer);
         let mut announced_routes: Vec<Prefix> = Vec::with_capacity(4);
 
-        while cursor.position() < size as u64 {
+        while cursor.position() < u64::from(size) {
             announced_routes.push(Prefix::parse(&mut cursor)?);
         }
 
@@ -359,14 +359,14 @@ impl MPUnreachNLRI {
         // ----------------------------
         // Read NLRI
         // ----------------------------
-        let size = length - 3 as u16;
+        let size = length - 3;
 
-        let mut buffer = vec![0; size as usize];
+        let mut buffer = vec![0; usize::from(size)];
         stream.read_exact(&mut buffer)?;
         let mut cursor = Cursor::new(buffer);
         let mut withdrawn_routes: Vec<Prefix> = Vec::with_capacity(4);
 
-        while cursor.position() < size as u64 {
+        while cursor.position() < u64::from(size) {
             withdrawn_routes.push(Prefix::parse(&mut cursor)?);
         }
 
