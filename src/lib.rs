@@ -1,4 +1,4 @@
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 
 //! The `bgp-rs` crate provides functionality to parse BGP-formatted streams.
 //!
@@ -10,9 +10,8 @@
 //! use std::io::Cursor;
 //! use std::io::Read;
 //! use std::io::BufReader;
-//! use mrt_rs::MRTReader;
-//! use mrt_rs::MRTRecord;
-//! use mrt_rs::BGP4MP;
+//! use mrt_rs::Record;
+//! use mrt_rs::bgp4mp::BGP4MP;
 //! use libflate::gzip::Decoder;
 //!
 //! fn main() {
@@ -23,12 +22,12 @@
 //!     let mut decoder = Decoder::new(BufReader::new(file)).unwrap();
 //!
 //!     // Create a new MRTReader with a Cursor such that we can keep track of the position.
-//!     let mut reader = MRTReader { stream: decoder };
+//!     let mut reader = mrt_rs::Reader { stream: decoder };
 //!
-//!     // Keep reading entries till the end of the file has been reached.
-//!     while let Ok(Some(record)) = reader.read() {
+//!     // Keep reading MRT (Header, Record) tuples till the end of the file has been reached.
+//!     while let Ok(Some((_, record))) = reader.read() {
 //!         match record {
-//!            MRTRecord::BGP4MP(x) => match x {
+//!            Record::BGP4MP(x) => match x {
 //!                BGP4MP::MESSAGE(x) => {
 //!                    let cursor = Cursor::new(x.message);
 //!                    let mut reader = bgp_rs::Reader { stream: cursor };
@@ -37,9 +36,11 @@
 //!                BGP4MP::MESSAGE_AS4(x) => {
 //!                    let cursor = Cursor::new(x.message);
 //!                    let mut reader = bgp_rs::Reader { stream: cursor };
+//!
+//!                    // Read BGP (Header, Message) tuples.
 //!                    match reader.read() {
 //!                        Err(x) => println!("Error: {}", x),
-//!                        Ok(x) => continue
+//!                        Ok((_, message)) => println!("{:?}", message),
 //!                    }
 //!                }
 //!
@@ -51,14 +52,13 @@
 //! }
 //! ```
 
-mod attributes;
-mod utility;
+/// Contains the implementation of all BGP path attributes.
+pub mod attributes;
 
 use byteorder::{BigEndian, ReadBytesExt};
 use std::io::{Cursor, Error, ErrorKind, Read};
 
 pub use crate::attributes::*;
-pub use crate::utility::normalize;
 
 /// Represents an Address Family Idenfitier. Currently only IPv4 and IPv6 are supported.
 #[derive(Debug)]
@@ -84,13 +84,6 @@ impl AFI {
             }
         }
     }
-
-    pub fn size(&self) -> u32 {
-        match self {
-            AFI::IPV4 => 4,
-            AFI::IPV6 => 16,
-        }
-    }
 }
 
 /// Represents the BGP header accompanying every BGP message.
@@ -107,13 +100,21 @@ pub struct Header {
 }
 
 /// Represents a single BGP message.
-#[allow(missing_docs)]
 #[derive(Debug)]
 pub enum Message {
+    /// Represent a BGP OPEN message.
     Open(Open),
+
+    /// Represent a BGP UPDATE message.
     Update(Update),
+
+    /// Represent a BGP NOTIFICATION message.
     Notification,
+
+    /// Represent a BGP KEEPALIVE message.
     KeepAlive,
+
+    /// Represent a BGP ROUTE_REFRESH message.
     RouteRefresh,
 }
 
@@ -176,7 +177,7 @@ impl OpenParameter {
         let param_type = stream.read_u8()?;
         let length = stream.read_u8()?;
         let mut value = vec![0; length as usize];
-        stream.read_exact(&mut value);
+        stream.read_exact(&mut value)?;
         Ok(OpenParameter {
             param_type,
             length,
@@ -192,7 +193,7 @@ pub struct Update {
     withdrawn_routes: Vec<Prefix>,
 
     /// A collection of attributes associated with the announced routes.
-    attributes: Vec<Attribute>,
+    attributes: Vec<PathAttribute>,
 
     /// A collection of routes that are announced by the peer.
     announced_routes: Vec<Prefix>,
@@ -207,7 +208,7 @@ impl Update {
         // ----------------------------
         let length = stream.read_u16::<BigEndian>()? as usize;
         let mut buffer = vec![0; length];
-        stream.read_exact(&mut buffer);
+        stream.read_exact(&mut buffer)?;
         nlri_length -= length;
 
         let mut withdrawn_routes: Vec<Prefix> = Vec::with_capacity(0);
@@ -221,13 +222,13 @@ impl Update {
         // ----------------------------
         let length = stream.read_u16::<BigEndian>()? as usize;
         let mut buffer = vec![0; length];
-        stream.read_exact(&mut buffer);
+        stream.read_exact(&mut buffer)?;
         nlri_length -= length;
 
-        let mut attributes: Vec<Attribute> = Vec::with_capacity(8);
+        let mut attributes: Vec<PathAttribute> = Vec::with_capacity(8);
         let mut cursor = Cursor::new(buffer);
         while cursor.position() < length as u64 {
-            let attribute = Attribute::parse(&mut cursor)?;
+            let attribute = PathAttribute::parse(&mut cursor)?;
             attributes.push(attribute);
         }
 
@@ -235,7 +236,7 @@ impl Update {
         // Read NLRI
         // ----------------------------
         let mut buffer = vec![0; nlri_length as usize];
-        stream.read_exact(&mut buffer);
+        stream.read_exact(&mut buffer)?;
         let mut cursor = Cursor::new(buffer);
         let mut announced_routes: Vec<Prefix> = Vec::with_capacity(4);
 
@@ -251,6 +252,7 @@ impl Update {
     }
 }
 
+/// Represents a generic prefix. For example an IPv4 prefix or IPv6 prefix.
 #[derive(Debug)]
 pub struct Prefix {
     length: u8,

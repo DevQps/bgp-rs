@@ -21,10 +21,10 @@ addons:
       - libiberty-dev
 
 script:
-  - cargo build --verbose
-  - cargo test  --verbose
-  - cargo doc   --verbose
-  - cargo clippy --verbose
+  - cargo build --release --verbose
+  - cargo test --release --verbose
+  - cargo doc --release --verbose
+  - cargo clippy --release --verbose
 
 after_success:
   - wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz && tar xzf master.tar.gz && cd kcov-master && mkdir build && cd build && cmake .. && make && make install DESTDIR=../../kcov-build && cd ../.. && rm -rf kcov-master

@@ -29,5 +29,5 @@ features = ["i128"]
 
 [dev-dependencies]
 libflate = "0.1"
-mrt-rs = "0.3"
+mrt-rs = "1.1.0"
 
