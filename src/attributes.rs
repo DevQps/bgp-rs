@@ -64,11 +64,11 @@ pub enum PathAttribute {
     /// SAFI Specific Attribute (Deprecated).
     SSA,
 
-    /// Defined in [RFC6037](http://www.iana.org/go/rfc6037).
-    CONNECTOR,
+    /// Defined in [RFC6037](http://www.iana.org/go/rfc6037). (Deprecated)
+    CONNECTOR(Ipv4Addr),
 
     /// Defined [here](http://www.iana.org/go/draft-ietf-idr-as-pathlimit). (Deprecated)
-    AS_PATHLIMIT,
+    AS_PATHLIMIT((u8, u32)),
 
     /// Defined in [RFC6514](http://www.iana.org/go/rfc6514).
     PMSI_TUNNEL,
@@ -101,7 +101,7 @@ pub enum PathAttribute {
     BGP_PREFIX_SID,
 
     /// Defined in [RFC6368](http://www.iana.org/go/rfc6368).
-    ATTR_SET,
+    ATTR_SET((u32, Vec<PathAttribute>)),
 }
 
 impl PathAttribute {
@@ -180,7 +180,19 @@ impl PathAttribute {
                 }
 
                 Ok(PathAttribute::EXTENDED_COMMUNITIES(communities))
-            }
+            },
+            20 => {
+                stream.read_u16::<BigEndian>()?;
+                let ip = Ipv4Addr::from(stream.read_u32::<BigEndian>()?);
+
+                Ok(PathAttribute::CONNECTOR(ip))
+            },
+            21 => {
+                let limit = stream.read_u8()?;
+                let asn = stream.read_u32::<BigEndian>()?;
+
+                Ok(PathAttribute::AS_PATHLIMIT((limit, asn)))
+            },
             32 => {
                 let mut communities: Vec<(u32, u32, u32)> =
                     Vec::with_capacity(usize::from(length / 12));
@@ -192,7 +204,26 @@ impl PathAttribute {
                 }
 
                 Ok(PathAttribute::LARGE_COMMUNITY(communities))
-            }
+            },
+            128 => {
+                let asn = stream.read_u32::<BigEndian>()?;
+
+                let mut buffer = vec![0; length as usize - 4];
+                stream.read_exact(&mut buffer)?;
+
+                let mut cursor = Cursor::new(buffer);
+
+                let mut attributes = Vec::with_capacity(5);
+                while cursor.position() < (length - 4).into() {
+                    let result = PathAttribute::parse(&mut cursor);
+                    match result {
+                        Err(x) => println!("Error: {}", x),
+                        Ok(x) => attributes.push(x),
+                    }
+                }
+
+                Ok(PathAttribute::ATTR_SET((asn, attributes)))
+            },
             x => {
                 let mut buffer = vec![0; usize::from(length)];
                 stream.read_exact(&mut buffer)?;
