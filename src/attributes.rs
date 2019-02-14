@@ -35,15 +35,17 @@ pub enum PathAttribute {
     ORIGINATOR_ID(u32),
 
     /// Defined in [RFC4456](http://www.iana.org/go/rfc4456).
-    CLUSTER_LIST,
+    /// Holds a list of CLUSTER_IDs.
+    CLUSTER_LIST(Vec<u32>),
 
-    /// Defined in [RFC6938](http://www.iana.org/go/rfc6938).
-    DPA,
+    /// Defined in [RFC6938](http://www.iana.org/go/rfc6938). **(deprecated)**
+    /// Tuple represents the (ASN specifying the preference, DPA value).
+    DPA((u16, u32)),
 
-    /// Defined in [RFC6938](http://www.iana.org/go/rfc6938).
+    /// Defined in [RFC6938](http://www.iana.org/go/rfc6938). **(deprecated)**
     ADVERTISER,
 
-    /// Defined in [RFC6938](http://www.iana.org/go/rfc6938).
+    /// Defined in [RFC6938](http://www.iana.org/go/rfc6938). **(deprecated)**
     CLUSTER_ID,
 
     /// Multi-protocol extensions. Defined in [RFC4760](http://www.iana.org/go/rfc4760).
@@ -61,34 +63,38 @@ pub enum PathAttribute {
     /// AGGREGATOR using 32-bit ASN. Defined in [RFC6793](http://www.iana.org/go/rfc6793).
     AS4_AGGREGATOR,
 
-    /// SAFI Specific Attribute (Deprecated).
+    /// SAFI Specific Attribute  **(deprecated)**.
     SSA,
 
-    /// Defined in [RFC6037](http://www.iana.org/go/rfc6037). (Deprecated)
+    /// Defined in [RFC6037](http://www.iana.org/go/rfc6037).  **(deprecated)**
     CONNECTOR(Ipv4Addr),
 
-    /// Defined [here](http://www.iana.org/go/draft-ietf-idr-as-pathlimit). (Deprecated)
+    /// Defined [here](http://www.iana.org/go/draft-ietf-idr-as-pathlimit).  **(deprecated)**
     AS_PATHLIMIT((u8, u32)),
 
     /// Defined in [RFC6514](http://www.iana.org/go/rfc6514).
-    PMSI_TUNNEL,
+    /// Specifies the (Flags, Tunnel Type + MPLS Label, Tunnel Identifier) fields.
+    PMSI_TUNNEL((u8, u32, Vec<u8>)),
 
     /// Defined in [RFC5512](http://www.iana.org/go/rfc5512).
-    TUNNEL_ENCAPSULATION,
+    /// Specifies the (Tunnel Type, Value) fields.
+    TUNNEL_ENCAPSULATION((u16, Vec<u8>)),
 
     /// Defined in [RFC5543](http://www.iana.org/go/rfc5543).
     TRAFFIC_ENGINEERING,
 
     /// Defined in [RFC5701](http://www.iana.org/go/rfc5701).
-    IPV6_SPECIFIC_EXTENDED_COMMUNITY,
+    /// Specifies the (Transitive, Sub-type, Global Administrator, Local Administrator) fields.
+    IPV6_SPECIFIC_EXTENDED_COMMUNITY((u8, u8, Ipv6Addr, u16)),
 
     /// Defined in [RFC7311](http://www.iana.org/go/rfc7311).
-    AIGP,
+    /// Specifies the (Type, Value) fields.
+    AIGP((u8, Vec<u8>)),
 
     /// Defined in [RFC6514](http://www.iana.org/go/rfc6514).
     PE_DISTINGUISHER_LABELS,
 
-    /// Defined in [RFC7752](http://www.iana.org/go/rfc7752).
+    /// Defined in [RFC7752](http://www.iana.org/go/rfc7752).  **(deprecated)**
     BGP_LS,
 
     /// Defined in [RFC8092](http://www.iana.org/go/rfc8092).
@@ -167,6 +173,20 @@ impl PathAttribute {
             9 => Ok(PathAttribute::ORIGINATOR_ID(
                 stream.read_u32::<BigEndian>()?,
             )),
+            9 => Ok(PathAttribute::ORIGINATOR_ID(
+                stream.read_u32::<BigEndian>()?,
+            )),
+            10 => {
+                let mut ids = Vec::with_capacity(usize::from(length / 4));
+                for _ in 0..(length / 4) {
+                    ids.push(stream.read_u32::<BigEndian>()?)
+                }
+
+                Ok(PathAttribute::CLUSTER_LIST(ids))
+            },
+            11 => Ok(PathAttribute::DPA(
+                (stream.read_u16::<BigEndian>()?, stream.read_u32::<BigEndian>()?)
+            )),
             14 => Ok(PathAttribute::MP_REACH_NLRI(MPReachNLRI::parse(
                 stream, length,
             )?)),
@@ -193,6 +213,39 @@ impl PathAttribute {
 
                 Ok(PathAttribute::AS_PATHLIMIT((limit, asn)))
             },
+            22 => {
+                let flags = stream.read_u8()?;
+                let label = stream.read_u32::<BigEndian>()?;
+                let mut identifier = vec![0; usize::from(length -4)];
+                stream.read_exact(&mut identifier)?;
+
+                Ok(PathAttribute::PMSI_TUNNEL((flags, label, identifier)))
+            },
+            23 => {
+                let tunnel_type = stream.read_u16::<BigEndian>()?;
+                let length = stream.read_u16::<BigEndian>()?;
+                let mut value = vec![0; usize::from(length)];
+                stream.read_exact(&mut value)?;
+
+                Ok(PathAttribute::TUNNEL_ENCAPSULATION((tunnel_type, value)))
+            },
+            25 => {
+                let transitive = stream.read_u8()?;
+                let subtype = stream.read_u8()?;
+                let global_admin = Ipv6Addr::from(stream.read_u128::<BigEndian>()?);
+                let local_admin = stream.read_u16::<BigEndian>()?;
+
+                Ok(PathAttribute::IPV6_SPECIFIC_EXTENDED_COMMUNITY((transitive, subtype, global_admin, local_admin)))
+            },
+            23 => {
+                let aigp_type = stream.read_u8()?;
+                let length = stream.read_u16::<BigEndian>()?;
+                let mut value = vec![0; usize::from(length - 3)];
+                stream.read_exact(&mut value)?;
+
+                Ok(PathAttribute::AIGP((aigp_type, value)))
+            },
+
             32 => {
                 let mut communities: Vec<(u32, u32, u32)> =
                     Vec::with_capacity(usize::from(length / 12));
