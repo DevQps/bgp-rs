@@ -28,9 +28,14 @@ fn parse_updates() {
             let (_, message) = reader.read().unwrap();
 
             // If this is an UPDATE message that contains announcements, extract its origin.
-            if let bgp_rs::Message::Update(x) = message {
+            if let bgp_rs::Message::Update(mut x) = message {
+
+                // Test the normalize function.
+                x.normalize();
+
                 if x.is_announcement() {
                     if let PathAttribute::AS_PATH(path) = x.get(Identifier::AS_PATH).unwrap() {
+
                         // Test the path.origin() method.
                         let _ = path.origin();
                     }
