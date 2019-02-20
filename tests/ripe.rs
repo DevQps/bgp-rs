@@ -1,3 +1,4 @@
+use bgp_rs::attributes::{Identifier, PathAttribute};
 use libflate::gzip::Decoder;
 use mrt_rs::bgp4mp::BGP4MP;
 use mrt_rs::Record;
@@ -19,25 +20,27 @@ fn parse_updates() {
 
     // Keep reading (Header, Record) tuples till the end of the file has been reached.
     while let Ok(Some((_, record))) = reader.read() {
-        match record {
-            Record::BGP4MP(x) => match x {
-                BGP4MP::MESSAGE(x) => {
-                    let cursor = Cursor::new(x.message);
-                    let mut reader = bgp_rs::Reader { stream: cursor };
-                    reader.read().unwrap();
-                }
-                BGP4MP::MESSAGE_AS4(x) => {
-                    let cursor = Cursor::new(x.message);
-                    let mut reader = bgp_rs::Reader { stream: cursor };
-                    match reader.read() {
-                        Err(x) => println!("Error: {}", x),
-                        Ok(_) => continue,
+        // Extract BGP4MP::MESSAGE_AS4 entries.
+        if let Record::BGP4MP(BGP4MP::MESSAGE_AS4(x)) = record {
+            // Read each BGP message
+            let cursor = Cursor::new(x.message);
+            let mut reader = bgp_rs::Reader { stream: cursor };
+            let (_, message) = reader.read().unwrap();
+
+            // If this is an UPDATE message that contains announcements, extract its origin.
+            if let bgp_rs::Message::Update(mut x) = message {
+
+                // Test the normalize function.
+                x.normalize();
+
+                if x.is_announcement() {
+                    if let PathAttribute::AS_PATH(path) = x.get(Identifier::AS_PATH).unwrap() {
+
+                        // Test the path.origin() method.
+                        let _ = path.origin();
                     }
                 }
-
-                _ => continue,
-            },
-            _ => continue,
+            }
         }
     }
 }
@@ -59,39 +62,18 @@ fn parse_rib() {
 
     // Read an MRT (Header, Record) tuple.
     while let Ok(Some((_, record))) = reader.read() {
-        match record {
-            Record::TABLE_DUMP_V2(x) => match x {
-                TABLE_DUMP_V2::RIB_IPV4_UNICAST(x) => {
-                    for entry in x.entries {
-                        let length = entry.attributes.len() as u64;
-                        let mut cursor = Cursor::new(entry.attributes);
+        // Extract TABLE_DUMP_V2::RIB_IPV4_UNICAST entries.
+        if let Record::TABLE_DUMP_V2(TABLE_DUMP_V2::RIB_IPV4_UNICAST(x)) = record {
+            // Loop over each route for this particular prefix.
+            for entry in x.entries {
+                let length = entry.attributes.len() as u64;
+                let mut cursor = Cursor::new(entry.attributes);
 
-                        while cursor.position() < length {
-                            let result = PathAttribute::parse(&mut cursor);
-                            match result {
-                                Err(x) => println!("Error: {}", x),
-                                Ok(_) => continue,
-                            }
-                        }
-                    }
+                // Parse each PathAttribute in each route.
+                while cursor.position() < length {
+                    PathAttribute::parse(&mut cursor).unwrap();
                 }
-                TABLE_DUMP_V2::RIB_IPV6_UNICAST(x) => {
-                    for entry in x.entries {
-                        let length = entry.attributes.len() as u64;
-                        let mut cursor = Cursor::new(entry.attributes);
-
-                        while cursor.position() < length {
-                            let result = PathAttribute::parse(&mut cursor);
-                            match result {
-                                Err(x) => println!("Error: {}", x),
-                                Ok(_) => continue,
-                            }
-                        }
-                    }
-                }
-                _ => continue,
-            },
-            _ => continue,
+            }
         }
     }
 }

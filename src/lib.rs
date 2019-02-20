@@ -13,42 +13,43 @@
 //! use mrt_rs::Record;
 //! use mrt_rs::bgp4mp::BGP4MP;
 //! use libflate::gzip::Decoder;
+//! use bgp_rs::{Identifier, PathAttribute};
 //!
 //! fn main() {
-//!     // Open an MRT-formatted file.
-//!     let file = File::open("res/updates.20190101.0000.gz").unwrap();
+//!    // Download an update message.
+//!    let file = File::open("res/updates.20190101.0000.gz").unwrap();
 //!
-//!     // Decode the GZIP stream using BufReader for better performance.
-//!     let mut decoder = Decoder::new(BufReader::new(file)).unwrap();
+//!    // Decode the GZIP stream.
+//!    let decoder = Decoder::new(BufReader::new(file)).unwrap();
 //!
-//!     // Create a new MRTReader with a Cursor such that we can keep track of the position.
-//!     let mut reader = mrt_rs::Reader { stream: decoder };
+//!    // Create a new MRTReader with a Cursor such that we can keep track of the position.
+//!    let mut reader = mrt_rs::Reader { stream: decoder };
 //!
-//!     // Keep reading MRT (Header, Record) tuples till the end of the file has been reached.
-//!     while let Ok(Some((_, record))) = reader.read() {
-//!         match record {
-//!            Record::BGP4MP(x) => match x {
-//!                BGP4MP::MESSAGE(x) => {
-//!                    let cursor = Cursor::new(x.message);
-//!                    let mut reader = bgp_rs::Reader { stream: cursor };
-//!                    reader.read().unwrap();
-//!                }
-//!                BGP4MP::MESSAGE_AS4(x) => {
-//!                    let cursor = Cursor::new(x.message);
-//!                    let mut reader = bgp_rs::Reader { stream: cursor };
+//!    // Keep reading MRT (Header, Record) tuples till the end of the file has been reached.
+//!    while let Ok(Some((_, record))) = reader.read() {
 //!
-//!                    // Read BGP (Header, Message) tuples.
-//!                    match reader.read() {
-//!                        Err(x) => println!("Error: {}", x),
-//!                        Ok((_, message)) => println!("{:?}", message),
+//!        // Extract BGP4MP::MESSAGE_AS4 entries.
+//!        if let Record::BGP4MP(BGP4MP::MESSAGE_AS4(x)) = record {
+//!
+//!            // Read each BGP (Header, Message)
+//!            let cursor = Cursor::new(x.message);
+//!            let mut reader = bgp_rs::Reader { stream: cursor };
+//!            let (_, message) = reader.read().unwrap();
+//!
+//!            // If this is an UPDATE message that contains announcements, extract its origin.
+//!            if let bgp_rs::Message::Update(x) = message {
+//!                if x.is_announcement() {
+//!                    if let PathAttribute::AS_PATH(path) = x.get(Identifier::AS_PATH).unwrap()
+//!                    {
+//!                        // Test the path.origin() method.
+//!                        let origin = path.origin();
+//!
+//!                        // Do other stuff ...
 //!                    }
 //!                }
-//!
-//!                _ => continue,
-//!            },
-//!            _ => continue,
+//!            }
 //!        }
-//!     }
+//!    }
 //! }
 //! ```
 
@@ -59,9 +60,13 @@ use byteorder::{BigEndian, ReadBytesExt};
 use std::io::{Cursor, Error, ErrorKind, Read};
 
 pub use crate::attributes::*;
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::net::IpAddr;
 
 /// Represents an Address Family Idenfitier. Currently only IPv4 and IPv6 are supported.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[repr(u16)]
 pub enum AFI {
     /// Internet Protocol version 4 (32 bits)
@@ -214,7 +219,7 @@ impl Update {
         let mut withdrawn_routes: Vec<Prefix> = Vec::with_capacity(0);
         let mut cursor = Cursor::new(buffer);
         while cursor.position() < length as u64 {
-            withdrawn_routes.push(Prefix::parse(&mut cursor)?);
+            withdrawn_routes.push(Prefix::parse(&mut cursor, AFI::IPV4)?);
         }
 
         // ----------------------------
@@ -241,7 +246,7 @@ impl Update {
         let mut announced_routes: Vec<Prefix> = Vec::with_capacity(4);
 
         while cursor.position() < nlri_length as u64 {
-            announced_routes.push(Prefix::parse(&mut cursor)?);
+            announced_routes.push(Prefix::parse(&mut cursor, AFI::IPV4)?);
         }
 
         Ok(Update {
@@ -250,21 +255,97 @@ impl Update {
             announced_routes,
         })
     }
+
+    /// Retrieves the first PathAttribute that matches the given identifier.
+    pub fn get(&self, identifier: Identifier) -> Option<&PathAttribute> {
+        for a in &self.attributes {
+            if a.id() == identifier {
+                return Some(a);
+            }
+        }
+        None
+    }
+
+    /// Checks if this UPDATE message contains announced prefixes.
+    pub fn is_announcement(&self) -> bool {
+        if !self.announced_routes.is_empty() || self.get(Identifier::MP_REACH_NLRI).is_some() {
+            return true;
+        }
+        false
+    }
+
+    /// Checks if this UPDATE message contains withdrawn routes..
+    pub fn is_withdrawal(&self) -> bool {
+        if !self.withdrawn_routes.is_empty() || self.get(Identifier::MP_UNREACH_NLRI).is_some() {
+            return true;
+        }
+        false
+    }
+
+    /// Moves the MP_REACH and MP_UNREACH NLRI into the NLRI.
+    pub fn normalize(&mut self) {
+
+        // Move the MP_REACH_NLRI attribute in the NLRI.
+        if let Some(PathAttribute::MP_REACH_NLRI(routes)) = self.get(Identifier::MP_REACH_NLRI)
+        {
+            self.announced_routes.extend(routes.announced_routes.clone())
+        }
+
+        // Move the MP_REACH_NLRI attribute in the NLRI.
+        if let Some(PathAttribute::MP_UNREACH_NLRI(routes)) = self.get(Identifier::MP_UNREACH_NLRI)
+        {
+            self.withdrawn_routes.extend(routes.withdrawn_routes.clone())
+        }
+    }
 }
 
 /// Represents a generic prefix. For example an IPv4 prefix or IPv6 prefix.
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct Prefix {
+    protocol: AFI,
     length: u8,
     prefix: Vec<u8>,
 }
 
+impl From<&Prefix> for IpAddr {
+    fn from(prefix: &Prefix) -> Self {
+        match prefix.protocol {
+            AFI::IPV4 => {
+                let mut buffer: [u8; 4] = [0; 4];
+                buffer[..prefix.prefix.len()].clone_from_slice(&prefix.prefix[..]);
+                IpAddr::from(buffer)
+            }
+            AFI::IPV6 => {
+                let mut buffer: [u8; 16] = [0; 16];
+                buffer[..prefix.prefix.len()].clone_from_slice(&prefix.prefix[..]);
+                IpAddr::from(buffer)
+            }
+        }
+    }
+}
+
+impl Display for Prefix {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{}/{}", IpAddr::from(self), self.length)
+    }
+}
+
+impl Debug for Prefix {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{}/{}", IpAddr::from(self), self.length)
+    }
+}
+
 impl Prefix {
-    fn parse(stream: &mut Read) -> Result<Prefix, Error> {
+    fn parse(stream: &mut Read, protocol: AFI) -> Result<Prefix, Error> {
         let length = stream.read_u8()?;
         let mut prefix: Vec<u8> = vec![0; ((length + 7) / 8) as usize];
         stream.read_exact(&mut prefix)?;
-        Ok(Prefix { length, prefix })
+        Ok(Prefix {
+            protocol,
+            length,
+            prefix,
+        })
     }
 }
 

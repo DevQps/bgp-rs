@@ -15,43 +15,43 @@ use std::io::BufReader;
 use mrt_rs::Record;
 use mrt_rs::bgp4mp::BGP4MP;
 use libflate::gzip::Decoder;
+use bgp_rs::{Identifier, PathAttribute};
 
 fn main() {
-    // Open an MRT-formatted file.
-    let file = File::open("res/updates.20190101.0000.gz").unwrap();
+   // Download an update message.
+   let file = File::open("res/updates.20190101.0000.gz").unwrap();
 
-    // Decode the GZIP stream using BufReader for better performance.
-    let mut decoder = Decoder::new(BufReader::new(file)).unwrap();
+   // Decode the GZIP stream.
+   let decoder = Decoder::new(BufReader::new(file)).unwrap();
 
-    // Create a new MRTReader with a Cursor such that we can keep track of the position.
-    let mut reader = mrt_rs::Reader { stream: decoder };
+   // Create a new MRTReader with a Cursor such that we can keep track of the position.
+   let mut reader = mrt_rs::Reader { stream: decoder };
 
-    // Keep reading MRT (Header, Record) tuples till the end of the file has been reached.
-    while let Ok(Some((_, record))) = reader.read() {
-        match record {
-           Record::BGP4MP(x) => match x {
-               BGP4MP::MESSAGE(x) => {
-                   let cursor = Cursor::new(x.message);
-                   let mut reader = bgp_rs::Reader { stream: cursor };
-                   reader.read().unwrap();
-               }
-               BGP4MP::MESSAGE_AS4(x) => {
-                   let cursor = Cursor::new(x.message);
-                   let mut reader = bgp_rs::Reader { stream: cursor };
+   // Keep reading MRT (Header, Record) tuples till the end of the file has been reached.
+   while let Ok(Some((_, record))) = reader.read() {
 
-                   // Read BGP (Header, Message) tuples.
-                   match reader.read() {
-                       Err(x) => println!("Error: {}", x),
-                       Ok((_, message)) => println!("{:?}", message),
+       // Extract BGP4MP::MESSAGE_AS4 entries.
+       if let Record::BGP4MP(BGP4MP::MESSAGE_AS4(x)) = record {
+
+           // Read each BGP (Header, Message)
+           let cursor = Cursor::new(x.message);
+           let mut reader = bgp_rs::Reader { stream: cursor };
+           let (_, message) = reader.read().unwrap();
+
+           // If this is an UPDATE message that contains announcements, extract its origin.
+           if let bgp_rs::Message::Update(x) = message {
+               if x.is_announcement() {
+                   if let PathAttribute::AS_PATH(path) = x.get(Identifier::AS_PATH).unwrap()
+                   {
+                       // Test the path.origin() method.
+                       let origin = path.origin();
+
+                       // Do other stuff ...
                    }
                }
-
-               _ => continue,
-           },
-           _ => continue,
+           }
        }
-    }
-}
+   }
 ```
 
 For examples and documentation look [here](https://docs.rs/bgp-rs/).

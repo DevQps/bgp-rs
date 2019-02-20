@@ -3,8 +3,46 @@ use byteorder::{BigEndian, ReadBytesExt};
 use std::io::{Cursor, Error, ErrorKind, Read};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[allow(non_camel_case_types)]
+#[allow(missing_docs)]
+pub enum Identifier {
+    ORIGIN = 1,
+    AS_PATH = 2,
+    NEXT_HOP = 3,
+    MULTI_EXIT_DISC = 4,
+    LOCAL_PREF = 5,
+    ATOMIC_AGGREGATOR = 6,
+    AGGREGATOR = 7,
+    COMMUNITY = 8,
+    ORIGINATOR_ID = 9,
+    CLUSTER_LIST = 10,
+    DPA = 11,
+    ADVERTISER = 12,
+    CLUSTER_ID = 13,
+    MP_REACH_NLRI = 14,
+    MP_UNREACH_NLRI = 15,
+    EXTENDED_COMMUNITIES = 16,
+    AS4_PATH = 17,
+    AS4_AGGREGATOR = 18,
+    SSA = 19,
+    CONNECTOR = 20,
+    AS_PATHLIMIT = 21,
+    PMSI_TUNNEL = 22,
+    TUNNEL_ENCAPSULATION = 23,
+    TRAFFIC_ENGINEERING = 24,
+    IPV6_SPECIFIC_EXTENDED_COMMUNITY = 25,
+    AIGP = 26,
+    PE_DISTINGUISHER_LABELS = 27,
+    BGP_LS = 29,
+    LARGE_COMMUNITY = 32,
+    BGPSEC_PATH = 33,
+    BGP_PREFIX_SID = 34,
+    ATTR_SET = 128,
+}
+
 /// Represents a path attribute that described meta data of a specific route.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(non_camel_case_types)]
 pub enum PathAttribute {
     /// Indicates how an UPDATE message has been generated. Defined in [RFC4271](http://www.iana.org/go/rfc4271).
@@ -58,10 +96,10 @@ pub enum PathAttribute {
     EXTENDED_COMMUNITIES(Vec<u64>),
 
     /// AS_PATH using 32-bit ASN. Defined in [RFC6793](http://www.iana.org/go/rfc6793).
-    AS4_PATH,
+    AS4_PATH(ASPath),
 
     /// AGGREGATOR using 32-bit ASN. Defined in [RFC6793](http://www.iana.org/go/rfc6793).
-    AS4_AGGREGATOR,
+    AS4_AGGREGATOR((u32, Ipv4Addr)),
 
     /// SAFI Specific Attribute  **(deprecated)**.
     SSA,
@@ -200,13 +238,19 @@ impl PathAttribute {
                 }
 
                 Ok(PathAttribute::EXTENDED_COMMUNITIES(communities))
-            },
+            }
+            17 => Ok(PathAttribute::AS4_PATH(ASPath::parse(stream, length)?)),
+            18 => {
+                let asn = stream.read_u32::<BigEndian>()?;
+                let ip = Ipv4Addr::from(stream.read_u32::<BigEndian>()?);
+                Ok(PathAttribute::AS4_AGGREGATOR((asn, ip)))
+            }
             20 => {
                 stream.read_u16::<BigEndian>()?;
                 let ip = Ipv4Addr::from(stream.read_u32::<BigEndian>()?);
 
                 Ok(PathAttribute::CONNECTOR(ip))
-            },
+            }
             21 => {
                 let limit = stream.read_u8()?;
                 let asn = stream.read_u32::<BigEndian>()?;
@@ -237,7 +281,7 @@ impl PathAttribute {
 
                 Ok(PathAttribute::IPV6_SPECIFIC_EXTENDED_COMMUNITY((transitive, subtype, global_admin, local_admin)))
             },
-            23 => {
+            26 => {
                 let aigp_type = stream.read_u8()?;
                 let length = stream.read_u16::<BigEndian>()?;
                 let mut value = vec![0; usize::from(length - 3)];
@@ -245,7 +289,6 @@ impl PathAttribute {
 
                 Ok(PathAttribute::AIGP((aigp_type, value)))
             },
-
             32 => {
                 let mut communities: Vec<(u32, u32, u32)> =
                     Vec::with_capacity(usize::from(length / 12));
@@ -257,7 +300,7 @@ impl PathAttribute {
                 }
 
                 Ok(PathAttribute::LARGE_COMMUNITY(communities))
-            },
+            }
             128 => {
                 let asn = stream.read_u32::<BigEndian>()?;
 
@@ -276,7 +319,7 @@ impl PathAttribute {
                 }
 
                 Ok(PathAttribute::ATTR_SET((asn, attributes)))
-            },
+            }
             x => {
                 let mut buffer = vec![0; usize::from(length)];
                 stream.read_exact(&mut buffer)?;
@@ -288,10 +331,50 @@ impl PathAttribute {
             }
         }
     }
+
+    /// Retrieve the identifier belonging to this PathAttribute
+    pub fn id(&self) -> Identifier {
+        match self {
+            PathAttribute::ORIGIN(_) => Identifier::ORIGIN,
+            PathAttribute::AS_PATH(_) => Identifier::AS_PATH,
+            PathAttribute::NEXT_HOP(_) => Identifier::NEXT_HOP,
+            PathAttribute::MULTI_EXIT_DISC(_) => Identifier::MULTI_EXIT_DISC,
+            PathAttribute::LOCAL_PREF(_) => Identifier::LOCAL_PREF,
+            PathAttribute::ATOMIC_AGGREGATOR => Identifier::ATOMIC_AGGREGATOR,
+            PathAttribute::AGGREGATOR(_) => Identifier::AGGREGATOR,
+            PathAttribute::COMMUNITY(_) => Identifier::COMMUNITY,
+            PathAttribute::ORIGINATOR_ID(_) => Identifier::ORIGINATOR_ID,
+            PathAttribute::CLUSTER_LIST(_) => Identifier::CLUSTER_LIST,
+            PathAttribute::DPA(_) => Identifier::DPA,
+            PathAttribute::ADVERTISER => Identifier::ADVERTISER,
+            PathAttribute::CLUSTER_ID => Identifier::CLUSTER_ID,
+            PathAttribute::MP_REACH_NLRI(_) => Identifier::MP_REACH_NLRI,
+            PathAttribute::MP_UNREACH_NLRI(_) => Identifier::MP_UNREACH_NLRI,
+            PathAttribute::EXTENDED_COMMUNITIES(_) => Identifier::EXTENDED_COMMUNITIES,
+            PathAttribute::AS4_PATH(_) => Identifier::AS4_PATH,
+            PathAttribute::AS4_AGGREGATOR(_) => Identifier::AS4_AGGREGATOR,
+            PathAttribute::SSA => Identifier::SSA,
+            PathAttribute::CONNECTOR(_) => Identifier::CONNECTOR,
+            PathAttribute::AS_PATHLIMIT(_) => Identifier::AS_PATHLIMIT,
+            PathAttribute::PMSI_TUNNEL(_) => Identifier::PMSI_TUNNEL,
+            PathAttribute::TUNNEL_ENCAPSULATION(_) => Identifier::TUNNEL_ENCAPSULATION,
+            PathAttribute::TRAFFIC_ENGINEERING => Identifier::TRAFFIC_ENGINEERING,
+            PathAttribute::IPV6_SPECIFIC_EXTENDED_COMMUNITY(_) => {
+                Identifier::IPV6_SPECIFIC_EXTENDED_COMMUNITY
+            }
+            PathAttribute::AIGP(_) => Identifier::AIGP,
+            PathAttribute::PE_DISTINGUISHER_LABELS => Identifier::PE_DISTINGUISHER_LABELS,
+            PathAttribute::BGP_LS => Identifier::BGP_LS,
+            PathAttribute::LARGE_COMMUNITY(_) => Identifier::LARGE_COMMUNITY,
+            PathAttribute::BGPSEC_PATH => Identifier::BGPSEC_PATH,
+            PathAttribute::BGP_PREFIX_SID => Identifier::BGP_PREFIX_SID,
+            PathAttribute::ATTR_SET(_) => Identifier::ATTR_SET,
+        }
+    }
 }
 
 /// Indicated how an announcement has been generated.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Origin {
     /// Generated by an Interior Gateway Protocol
     IGP,
@@ -315,7 +398,7 @@ impl Origin {
 }
 
 /// Represents the path that an announcement has travelled.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ASPath {
     /// A collection of segments that together form the path that a message has travelled.
     pub segments: Vec<Segment>,
@@ -342,8 +425,8 @@ impl ASPath {
             }
 
             match segment_type {
-                1 => path.segments.push(Segment::AS_SEQUENCE(values)),
-                2 => path.segments.push(Segment::AS_SET(values)),
+                1 => path.segments.push(Segment::AS_SET(values)),
+                2 => path.segments.push(Segment::AS_SEQUENCE(values)),
                 x => {
                     return Err(Error::new(
                         ErrorKind::Other,
@@ -357,10 +440,35 @@ impl ASPath {
 
         Ok(path)
     }
+
+    /// Retrieves the AS that originated the announcement.
+    /// Returns None if it is originated by as an AS_SET.
+    pub fn origin(&self) -> Option<u32> {
+        let segment = self.segments.first()?;
+        if let Segment::AS_SEQUENCE(x) = segment {
+            return Some(*x.first()?);
+        }
+
+        None
+    }
+
+    /// Returns the AS_PATH as a singular sequence of ASN.
+    /// Returns None if there are any AS_SET segments.
+    pub fn sequence(&self) -> Option<Vec<u32>> {
+        let mut sequence = Vec::with_capacity(8);
+        for segment in &self.segments {
+            match segment {
+                Segment::AS_SEQUENCE(x) => sequence.extend(x),
+                Segment::AS_SET(_) => return None,
+            }
+        }
+
+        Some(sequence)
+    }
 }
 
 /// Represents the segment type of an AS_PATH. Can be either AS_SEQUENCE or AS_SET.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(non_camel_case_types)]
 pub enum Segment {
     /// Represents a sequence of ASN that an announcement travelled through.
@@ -371,7 +479,7 @@ pub enum Segment {
 }
 
 /// Used when announcing routes to non-IPv4 addresses.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MPReachNLRI {
     /// The Address Family Identifier of the routes being announced.
     pub afi: AFI,
@@ -409,7 +517,7 @@ impl MPReachNLRI {
         let mut announced_routes: Vec<Prefix> = Vec::with_capacity(4);
 
         while cursor.position() < u64::from(size) {
-            announced_routes.push(Prefix::parse(&mut cursor)?);
+            announced_routes.push(Prefix::parse(&mut cursor, afi)?);
         }
 
         Ok(MPReachNLRI {
@@ -422,7 +530,7 @@ impl MPReachNLRI {
 }
 
 /// Used when withdrawing routes to non-IPv4 addresses.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MPUnreachNLRI {
     /// The Address Family Identifier of the routes being withdrawn.
     pub afi: AFI,
@@ -451,7 +559,7 @@ impl MPUnreachNLRI {
         let mut withdrawn_routes: Vec<Prefix> = Vec::with_capacity(4);
 
         while cursor.position() < u64::from(size) {
-            withdrawn_routes.push(Prefix::parse(&mut cursor)?);
+            withdrawn_routes.push(Prefix::parse(&mut cursor, afi)?);
         }
 
         Ok(MPUnreachNLRI {
