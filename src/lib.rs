@@ -284,17 +284,17 @@ impl Update {
 
     /// Moves the MP_REACH and MP_UNREACH NLRI into the NLRI.
     pub fn normalize(&mut self) {
-
         // Move the MP_REACH_NLRI attribute in the NLRI.
-        if let Some(PathAttribute::MP_REACH_NLRI(routes)) = self.get(Identifier::MP_REACH_NLRI)
-        {
-            self.announced_routes.extend(routes.announced_routes.clone())
+        if let Some(PathAttribute::MP_REACH_NLRI(routes)) = self.get(Identifier::MP_REACH_NLRI) {
+            self.announced_routes
+                .extend(routes.announced_routes.clone())
         }
 
         // Move the MP_REACH_NLRI attribute in the NLRI.
         if let Some(PathAttribute::MP_UNREACH_NLRI(routes)) = self.get(Identifier::MP_UNREACH_NLRI)
         {
-            self.withdrawn_routes.extend(routes.withdrawn_routes.clone())
+            self.withdrawn_routes
+                .extend(routes.withdrawn_routes.clone())
         }
     }
 }

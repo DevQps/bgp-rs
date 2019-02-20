@@ -211,9 +211,6 @@ impl PathAttribute {
             9 => Ok(PathAttribute::ORIGINATOR_ID(
                 stream.read_u32::<BigEndian>()?,
             )),
-            9 => Ok(PathAttribute::ORIGINATOR_ID(
-                stream.read_u32::<BigEndian>()?,
-            )),
             10 => {
                 let mut ids = Vec::with_capacity(usize::from(length / 4));
                 for _ in 0..(length / 4) {
@@ -221,10 +218,11 @@ impl PathAttribute {
                 }
 
                 Ok(PathAttribute::CLUSTER_LIST(ids))
-            },
-            11 => Ok(PathAttribute::DPA(
-                (stream.read_u16::<BigEndian>()?, stream.read_u32::<BigEndian>()?)
-            )),
+            }
+            11 => Ok(PathAttribute::DPA((
+                stream.read_u16::<BigEndian>()?,
+                stream.read_u32::<BigEndian>()?,
+            ))),
             14 => Ok(PathAttribute::MP_REACH_NLRI(MPReachNLRI::parse(
                 stream, length,
             )?)),
@@ -256,15 +254,15 @@ impl PathAttribute {
                 let asn = stream.read_u32::<BigEndian>()?;
 
                 Ok(PathAttribute::AS_PATHLIMIT((limit, asn)))
-            },
+            }
             22 => {
                 let flags = stream.read_u8()?;
                 let label = stream.read_u32::<BigEndian>()?;
-                let mut identifier = vec![0; usize::from(length -4)];
+                let mut identifier = vec![0; usize::from(length - 4)];
                 stream.read_exact(&mut identifier)?;
 
                 Ok(PathAttribute::PMSI_TUNNEL((flags, label, identifier)))
-            },
+            }
             23 => {
                 let tunnel_type = stream.read_u16::<BigEndian>()?;
                 let length = stream.read_u16::<BigEndian>()?;
@@ -272,15 +270,20 @@ impl PathAttribute {
                 stream.read_exact(&mut value)?;
 
                 Ok(PathAttribute::TUNNEL_ENCAPSULATION((tunnel_type, value)))
-            },
+            }
             25 => {
                 let transitive = stream.read_u8()?;
                 let subtype = stream.read_u8()?;
                 let global_admin = Ipv6Addr::from(stream.read_u128::<BigEndian>()?);
                 let local_admin = stream.read_u16::<BigEndian>()?;
 
-                Ok(PathAttribute::IPV6_SPECIFIC_EXTENDED_COMMUNITY((transitive, subtype, global_admin, local_admin)))
-            },
+                Ok(PathAttribute::IPV6_SPECIFIC_EXTENDED_COMMUNITY((
+                    transitive,
+                    subtype,
+                    global_admin,
+                    local_admin,
+                )))
+            }
             26 => {
                 let aigp_type = stream.read_u8()?;
                 let length = stream.read_u16::<BigEndian>()?;
@@ -288,7 +291,7 @@ impl PathAttribute {
                 stream.read_exact(&mut value)?;
 
                 Ok(PathAttribute::AIGP((aigp_type, value)))
-            },
+            }
             32 => {
                 let mut communities: Vec<(u32, u32, u32)> =
                     Vec::with_capacity(usize::from(length / 12));
