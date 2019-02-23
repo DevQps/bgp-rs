@@ -447,9 +447,9 @@ impl ASPath {
     /// Retrieves the AS that originated the announcement.
     /// Returns None if it is originated by as an AS_SET.
     pub fn origin(&self) -> Option<u32> {
-        let segment = self.segments.first()?;
+        let segment = self.segments.last()?;
         if let Segment::AS_SEQUENCE(x) = segment {
-            return Some(*x.first()?);
+            return Some(*x.last()?);
         }
 
         None
