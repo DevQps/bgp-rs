@@ -1,3 +1,4 @@
+use crate::Capabilities;
 use crate::{Prefix, AFI};
 use byteorder::{BigEndian, ReadBytesExt};
 use std::io::{Cursor, Error, ErrorKind, Read};
@@ -162,7 +163,7 @@ impl PathAttribute {
     /// # Safety
     /// This function does not make use of unsafe code.
     ///
-    pub fn parse(stream: &mut Read) -> Result<PathAttribute, Error> {
+    pub fn parse(stream: &mut Read, capabilities: &Capabilities) -> Result<PathAttribute, Error> {
         let flags = stream.read_u8()?;
         let code = stream.read_u8()?;
 
@@ -175,7 +176,11 @@ impl PathAttribute {
 
         match code {
             1 => Ok(PathAttribute::ORIGIN(Origin::parse(stream)?)),
-            2 => Ok(PathAttribute::AS_PATH(ASPath::parse(stream, length)?)),
+            2 => Ok(PathAttribute::AS_PATH(ASPath::parse(
+                stream,
+                length,
+                capabilities,
+            )?)),
             3 => {
                 let ip: IpAddr = if length == 4 {
                     IpAddr::V4(Ipv4Addr::from(stream.read_u32::<BigEndian>()?))
@@ -237,7 +242,11 @@ impl PathAttribute {
 
                 Ok(PathAttribute::EXTENDED_COMMUNITIES(communities))
             }
-            17 => Ok(PathAttribute::AS4_PATH(ASPath::parse(stream, length)?)),
+            17 => Ok(PathAttribute::AS4_PATH(ASPath::parse(
+                stream,
+                length,
+                capabilities,
+            )?)),
             18 => {
                 let asn = stream.read_u32::<BigEndian>()?;
                 let ip = Ipv4Addr::from(stream.read_u32::<BigEndian>()?);
@@ -314,7 +323,7 @@ impl PathAttribute {
 
                 let mut attributes = Vec::with_capacity(5);
                 while cursor.position() < (length - 4).into() {
-                    let result = PathAttribute::parse(&mut cursor);
+                    let result = PathAttribute::parse(&mut cursor, capabilities);
                     match result {
                         Err(x) => println!("Error: {}", x),
                         Ok(x) => attributes.push(x),
@@ -409,39 +418,14 @@ pub struct ASPath {
 
 impl ASPath {
     // TODO: Give argument that determines the AS size.
-    fn parse(stream: &mut Read, length: u16) -> Result<ASPath, Error> {
-        // Create an AS_PATH struct with a capacity of 1, since AS_SETs
-        // or multiple AS_SEQUENCES, are not seen often anymore.
-        let mut path = ASPath {
-            segments: Vec::with_capacity(1),
+    fn parse(stream: &mut Read, length: u16, capabilities: &Capabilities) -> Result<ASPath, Error> {
+        let segments = if capabilities.FOUR_OCTET_ASN_SUPPORT {
+            Segment::parse_u32_segments(stream, length)?
+        } else {
+            Segment::parse_u16_segments(stream, length)?
         };
 
-        // While there are multiple AS_PATH segments, parse the segments.
-        let mut size = length;
-        while size != 0 {
-            let segment_type = stream.read_u8()?;
-            let length = stream.read_u8()?;
-            let mut values: Vec<u32> = Vec::with_capacity(usize::from(length));
-
-            for _ in 0..length {
-                values.push(stream.read_u32::<BigEndian>()?);
-            }
-
-            match segment_type {
-                1 => path.segments.push(Segment::AS_SET(values)),
-                2 => path.segments.push(Segment::AS_SEQUENCE(values)),
-                x => {
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        format!("Unknown AS_PATH segment type found: {}", x),
-                    ));
-                }
-            }
-
-            size -= 2 + (u16::from(length) * 4);
-        }
-
-        Ok(path)
+        Ok(ASPath { segments })
     }
 
     /// Retrieves the AS that originated the announcement.
@@ -479,6 +463,82 @@ pub enum Segment {
 
     /// Represents a set of ASN through which a BGP message travelled.
     AS_SET(Vec<u32>),
+}
+
+impl Segment {
+    fn parse_u16_segments(stream: &mut Read, length: u16) -> Result<Vec<Segment>, Error> {
+        let mut segments: Vec<Segment> = Vec::with_capacity(1);
+
+        // While there are multiple AS_PATH segments, parse the segments.
+        let mut size = length;
+        while size != 0 {
+            // The type of a segment, either AS_SET or AS_SEQUENCE.
+            let segment_type = stream.read_u8()?;
+
+            // The amount of ASN inside a segment.
+            let segment_length = stream.read_u8()?;
+
+            // Construct a Vec<u32> such that one interface be used when handling AS_PATHs.
+            let mut elements: Vec<u32> = Vec::with_capacity(usize::from(segment_length));
+
+            // Parse the ASN as 16-bit ASN.
+            for _ in 0..segment_length {
+                elements.push(stream.read_u16::<BigEndian>()? as u32);
+            }
+
+            match segment_type {
+                1 => segments.push(Segment::AS_SET(elements)),
+                2 => segments.push(Segment::AS_SEQUENCE(elements)),
+                x => {
+                    return Err(Error::new(
+                        ErrorKind::Other,
+                        format!("Unknown AS_PATH segment type found: {}", x),
+                    ));
+                }
+            }
+
+            size -= 2 + (u16::from(segment_length) * 2);
+        }
+
+        Ok(segments)
+    }
+
+    fn parse_u32_segments(stream: &mut Read, length: u16) -> Result<Vec<Segment>, Error> {
+        let mut segments: Vec<Segment> = Vec::with_capacity(1);
+
+        // While there are multiple AS_PATH segments, parse the segments.
+        let mut size: i32 = length as i32;
+        while size != 0 {
+            // The type of a segment, either AS_SET or AS_SEQUENCE.
+            let segment_type = stream.read_u8()?;
+
+            // The amount of ASN inside a segment.
+            let segment_length = stream.read_u8()?;
+
+            // Construct a Vec<u32> such that one interface be used when handling AS_PATHs.
+            let mut elements: Vec<u32> = Vec::with_capacity(usize::from(segment_length));
+
+            // Parse the ASN as 32-bit ASN.
+            for _ in 0..segment_length {
+                elements.push(stream.read_u32::<BigEndian>()?);
+            }
+
+            match segment_type {
+                1 => segments.push(Segment::AS_SET(elements)),
+                2 => segments.push(Segment::AS_SEQUENCE(elements)),
+                x => {
+                    return Err(Error::new(
+                        ErrorKind::Other,
+                        format!("Unknown AS_PATH segment type found: {}", x),
+                    ));
+                }
+            }
+
+            size -= 2 + (u16::from(segment_length) * 4) as i32;
+        }
+
+        Ok(segments)
+    }
 }
 
 /// Used when announcing routes to non-IPv4 addresses.

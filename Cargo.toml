@@ -30,4 +30,6 @@ features = ["i128"]
 [dev-dependencies]
 libflate = "0.1"
 mrt-rs = "1.1.0"
+pcap-file = "0.10.0"
+etherparse = "0.8.0"
 
