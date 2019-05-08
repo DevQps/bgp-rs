@@ -400,15 +400,14 @@ impl Origin {
     }
 }
 
-/// Represents the path that an announcement has travelled.
+/// Represents the path that an announcement has traveled.
 #[derive(Debug, Clone)]
 pub struct ASPath {
-    /// A collection of segments that together form the path that a message has travelled.
+    /// A collection of segments that together form the path that a message has traveled.
     pub segments: Vec<Segment>,
 }
 
 impl ASPath {
-    // TODO: Give argument that determines the AS size.
     fn parse(stream: &mut Read, length: u16) -> Result<ASPath, Error> {
         // Create an AS_PATH struct with a capacity of 1, since AS_SETs
         // or multiple AS_SEQUENCES, are not seen often anymore.
@@ -418,13 +417,27 @@ impl ASPath {
 
         // While there are multiple AS_PATH segments, parse the segments.
         let mut size = length;
+        if length == 0 {
+            return Err(Error::new(ErrorKind::Other, format!("Empty AS_PATH")));
+        }
+        let asn_bytes_size = (size - 2) / (length as u16);
         while size != 0 {
             let segment_type = stream.read_u8()?;
             let length = stream.read_u8()?;
             let mut values: Vec<u32> = Vec::with_capacity(usize::from(length));
 
             for _ in 0..length {
-                values.push(stream.read_u32::<BigEndian>()?);
+                let segment = match asn_bytes_size {
+                    2 => stream.read_u16::<BigEndian>()? as u32,
+                    4 => stream.read_u32::<BigEndian>()?,
+                    x => {
+                        return Err(Error::new(
+                            ErrorKind::Other,
+                            format!("Unknown AS_PATH segment size found: {}", x),
+                        ));
+                    }
+                };
+                values.push(segment);
             }
 
             match segment_type {
@@ -438,7 +451,7 @@ impl ASPath {
                 }
             }
 
-            size -= 2 + (u16::from(length) * 4);
+            size -= 2 + (u16::from(length) * asn_bytes_size);
         }
 
         Ok(path)
