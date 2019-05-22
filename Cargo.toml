@@ -1,6 +1,6 @@
 [package]
 name = "bgp-rs"
-version = "0.4.1"
+version = "0.5.0"
 authors = ["Christian Veenman <chris_veenman@hotmail.com>"]
 edition = '2018'
 readme = "README.md"
@@ -30,4 +30,6 @@ features = ["i128"]
 [dev-dependencies]
 libflate = "0.1"
 mrt-rs = "1.1.0"
+pcap-file = "0.10.0"
+etherparse = "0.8.0"
 

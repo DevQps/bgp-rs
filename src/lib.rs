@@ -17,7 +17,7 @@
 //!
 //! fn main() {
 //!    // Download an update message.
-//!    let file = File::open("res/updates.20190101.0000.gz").unwrap();
+//!    let file = File::open("res/mrt/updates.20190101.0000.gz").unwrap();
 //!
 //!    // Decode the GZIP stream.
 //!    let decoder = Decoder::new(BufReader::new(file)).unwrap();
@@ -33,7 +33,7 @@
 //!
 //!            // Read each BGP (Header, Message)
 //!            let cursor = Cursor::new(x.message);
-//!            let mut reader = bgp_rs::Reader { stream: cursor };
+//!            let mut reader = bgp_rs::Reader::new(cursor);
 //!            let (_, message) = reader.read().unwrap();
 //!
 //!            // If this is an UPDATE message that contains announcements, extract its origin.
@@ -120,7 +120,7 @@ pub enum Message {
     KeepAlive,
 
     /// Represent a BGP ROUTE_REFRESH message.
-    RouteRefresh,
+    RouteRefresh(RouteRefresh),
 }
 
 /// Represents a BGP Open message.
@@ -148,10 +148,14 @@ impl Open {
         let peer_asn = stream.read_u16::<BigEndian>()?;
         let hold_timer = stream.read_u16::<BigEndian>()?;
         let identifier = stream.read_u32::<BigEndian>()?;
-        let length = stream.read_u8()?;
+        let mut length = stream.read_u8()?;
+
         let mut parameters: Vec<OpenParameter> = Vec::with_capacity(length as usize);
-        for _ in 0..length {
-            parameters.push(OpenParameter::parse(stream)?);
+
+        while length > 0 {
+            let (bytes_read, parameter) = OpenParameter::parse(stream)?;
+            parameters.push(parameter);
+            length -= bytes_read;
         }
 
         Ok(Open {
@@ -171,23 +175,28 @@ pub struct OpenParameter {
     pub param_type: u8,
 
     /// The length of the data that this parameter holds in bytes.
-    pub length: u8,
+    pub param_length: u8,
 
     /// The value that is set for this parameter.
     pub value: Vec<u8>,
 }
 
 impl OpenParameter {
-    fn parse(stream: &mut Read) -> Result<OpenParameter, Error> {
+    fn parse(stream: &mut Read) -> Result<(u8, OpenParameter), Error> {
         let param_type = stream.read_u8()?;
-        let length = stream.read_u8()?;
-        let mut value = vec![0; length as usize];
+        let param_length = stream.read_u8()?;
+
+        let mut value = vec![0; param_length as usize];
         stream.read_exact(&mut value)?;
-        Ok(OpenParameter {
-            param_type,
-            length,
-            value,
-        })
+
+        Ok((
+            2 + param_length,
+            OpenParameter {
+                param_type,
+                param_length,
+                value,
+            },
+        ))
     }
 }
 
@@ -201,11 +210,15 @@ pub struct Update {
     attributes: Vec<PathAttribute>,
 
     /// A collection of routes that are announced by the peer.
-    announced_routes: Vec<Prefix>,
+    announced_routes: Vec<NLRIEncoding>,
 }
 
 impl Update {
-    fn parse(stream: &mut Read, header: &Header) -> Result<Update, Error> {
+    fn parse(
+        header: &Header,
+        stream: &mut Read,
+        capabilities: &Capabilities,
+    ) -> Result<Update, Error> {
         let mut nlri_length: usize = header.length as usize - 23;
 
         // ----------------------------
@@ -233,7 +246,7 @@ impl Update {
         let mut attributes: Vec<PathAttribute> = Vec::with_capacity(8);
         let mut cursor = Cursor::new(buffer);
         while cursor.position() < length as u64 {
-            let attribute = PathAttribute::parse(&mut cursor)?;
+            let attribute = PathAttribute::parse(&mut cursor, capabilities)?;
             attributes.push(attribute);
         }
 
@@ -241,12 +254,21 @@ impl Update {
         // Read NLRI
         // ----------------------------
         let mut buffer = vec![0; nlri_length as usize];
+
         stream.read_exact(&mut buffer)?;
         let mut cursor = Cursor::new(buffer);
-        let mut announced_routes: Vec<Prefix> = Vec::with_capacity(4);
+        let mut announced_routes: Vec<NLRIEncoding> = Vec::with_capacity(4);
 
-        while cursor.position() < nlri_length as u64 {
-            announced_routes.push(Prefix::parse(&mut cursor, AFI::IPV4)?);
+        if capabilities.EXTENDED_PATH_NLRI_SUPPORT {
+            while cursor.position() < nlri_length as u64 {
+                let path_id = cursor.read_u32::<BigEndian>()?;
+                let prefix = Prefix::parse(&mut cursor, AFI::IPV4)?;
+                announced_routes.push(NLRIEncoding::IP_WITH_PATH_ID((prefix, path_id)));
+            }
+        } else {
+            while cursor.position() < nlri_length as u64 {
+                announced_routes.push(NLRIEncoding::IP(Prefix::parse(&mut cursor, AFI::IPV4)?));
+            }
         }
 
         Ok(Update {
@@ -299,6 +321,20 @@ impl Update {
     }
 }
 
+/// Represents NLRIEncodings present in the NRLI section of an UPDATE message.
+#[derive(Debug, Clone)]
+#[allow(non_camel_case_types)]
+pub enum NLRIEncoding {
+    /// Encodings that specify only an IP present, either IPv4 or IPv6
+    IP(Prefix),
+
+    /// Encodings that specify a Path Identifier as specified in RFC7911. (Prefix, Label)
+    IP_WITH_PATH_ID((Prefix, u32)),
+
+    /// Encodings that specify a Path Identifier as specified in RFC8277. (Prefix, MPLS Label)
+    IP_MPLS((Prefix, u32)),
+}
+
 /// Represents a generic prefix. For example an IPv4 prefix or IPv6 prefix.
 #[derive(Clone)]
 pub struct Prefix {
@@ -341,6 +377,7 @@ impl Prefix {
         let length = stream.read_u8()?;
         let mut prefix: Vec<u8> = vec![0; ((length + 7) / 8) as usize];
         stream.read_exact(&mut prefix)?;
+
         Ok(Prefix {
             protocol,
             length,
@@ -353,6 +390,45 @@ impl Prefix {
 #[derive(Debug)]
 pub struct Notification {}
 
+/// Represents a BGP Route Refresh message.
+#[derive(Debug)]
+pub struct RouteRefresh {
+    afi: AFI,
+    safi: u8,
+}
+
+impl RouteRefresh {
+    fn parse(stream: &mut Read) -> Result<RouteRefresh, Error> {
+        let afi = AFI::from(stream.read_u16::<BigEndian>()?)?;
+        let _ = stream.read_u8()?;
+        let safi = stream.read_u8()?;
+
+        Ok(RouteRefresh { afi, safi })
+    }
+}
+
+/// Contains the BGP session parameters that distinguish how BGP messages should be parsed.
+#[allow(non_snake_case)]
+pub struct Capabilities {
+    /// Support for 4-octet AS number capability.
+    pub FOUR_OCTET_ASN_SUPPORT: bool,
+
+    /// Support for reading NLRI extended with a Path Identifier
+    pub EXTENDED_PATH_NLRI_SUPPORT: bool,
+}
+
+impl Default for Capabilities {
+    fn default() -> Self {
+        Capabilities {
+            // Parse ASN as 32-bit ASN by default.
+            FOUR_OCTET_ASN_SUPPORT: true,
+
+            // Do not use Extended Path NLRI by default
+            EXTENDED_PATH_NLRI_SUPPORT: false,
+        }
+    }
+}
+
 /// The BGPReader can read BGP messages from a BGP-formatted stream.
 pub struct Reader<T>
 where
@@ -360,6 +436,9 @@ where
 {
     /// The stream from which BGP messages will be read.
     pub stream: T,
+
+    /// Capability parameters that distinguish how BGP messages should be parsed.
+    pub capabilities: Capabilities,
 }
 
 impl<T> Reader<T>
@@ -393,16 +472,47 @@ where
         match header.record_type {
             1 => Ok((header, Message::Open(Open::parse(&mut self.stream)?))),
             2 => {
-                let attribute = Message::Update(Update::parse(&mut self.stream, &header)?);
+                let attribute = Message::Update(Update::parse(
+                    &header,
+                    &mut self.stream,
+                    &self.capabilities,
+                )?);
                 Ok((header, attribute))
             }
             3 => Ok((header, Message::Notification)),
             4 => Ok((header, Message::KeepAlive)),
-            5 => unimplemented!("ROUTE-REFRESH messages are not yet implemented."),
+            5 => Ok((
+                header,
+                Message::RouteRefresh(RouteRefresh::parse(&mut self.stream)?),
+            )),
             _ => Err(Error::new(
                 ErrorKind::Other,
                 "Unknown BGP message type found in BGPHeader",
             )),
+        }
+    }
+
+    ///
+    /// Constructs a BGPReader with default parameters.
+    ///
+    /// # Panics
+    /// This function does not panic.
+    ///
+    /// # Errors
+    /// Any IO error will be returned while reading from the stream.
+    /// If an ill-formatted stream provided behavior will be undefined.
+    ///
+    /// # Safety
+    /// This function does not make use of unsafe code.
+    ///
+    ///
+    pub fn new(stream: T) -> Reader<T>
+    where
+        T: Read,
+    {
+        Reader::<T> {
+            stream,
+            capabilities: Default::default(),
         }
     }
 }

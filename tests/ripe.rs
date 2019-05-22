@@ -10,7 +10,7 @@ use std::io::Cursor;
 #[test]
 fn parse_updates() {
     // Download an update message.
-    let file = File::open("res/updates.20190101.0000.gz").unwrap();
+    let file = File::open("res/mrt/updates.20190101.0000.gz").unwrap();
 
     // Decode the GZIP stream.
     let decoder = Decoder::new(BufReader::new(file)).unwrap();
@@ -24,7 +24,7 @@ fn parse_updates() {
         if let Record::BGP4MP(BGP4MP::MESSAGE_AS4(x)) = record {
             // Read each BGP message
             let cursor = Cursor::new(x.message);
-            let mut reader = bgp_rs::Reader { stream: cursor };
+            let mut reader = bgp_rs::Reader::new(cursor);
             let (_, message) = reader.read().unwrap();
 
             // If this is an UPDATE message that contains announcements, extract its origin.
@@ -50,7 +50,7 @@ fn parse_rib() {
     use mrt_rs::tabledump::TABLE_DUMP_V2;
 
     // Download an update message.
-    let file = File::open("res/bview.20100101.0759.gz").unwrap();
+    let file = File::open("res/mrt/bview.20100101.0759.gz").unwrap();
 
     // Decode the GZIP stream.
     let decoder = Decoder::new(BufReader::new(file)).unwrap();
@@ -69,7 +69,7 @@ fn parse_rib() {
 
                 // Parse each PathAttribute in each route.
                 while cursor.position() < length {
-                    PathAttribute::parse(&mut cursor).unwrap();
+                    PathAttribute::parse(&mut cursor, &Default::default()).unwrap();
                 }
             }
         }
