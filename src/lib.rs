@@ -210,7 +210,7 @@ pub struct Update {
     attributes: Vec<PathAttribute>,
 
     /// A collection of routes that are announced by the peer.
-    announced_routes: Vec<Prefix>,
+    announced_routes: Vec<NLRIEncoding>,
 }
 
 impl Update {
@@ -254,12 +254,21 @@ impl Update {
         // Read NLRI
         // ----------------------------
         let mut buffer = vec![0; nlri_length as usize];
+
         stream.read_exact(&mut buffer)?;
         let mut cursor = Cursor::new(buffer);
-        let mut announced_routes: Vec<Prefix> = Vec::with_capacity(4);
+        let mut announced_routes: Vec<NLRIEncoding> = Vec::with_capacity(4);
 
-        while cursor.position() < nlri_length as u64 {
-            announced_routes.push(Prefix::parse(&mut cursor, AFI::IPV4)?);
+        if capabilities.EXTENDED_PATH_NLRI_SUPPORT {
+            while cursor.position() < nlri_length as u64 {
+                let path_id = cursor.read_u32::<BigEndian>()?;
+                let prefix = Prefix::parse(&mut cursor, AFI::IPV4)?;
+                announced_routes.push(NLRIEncoding::IP_WITH_PATH_ID((prefix, path_id)));
+            }
+        } else {
+            while cursor.position() < nlri_length as u64 {
+                announced_routes.push(NLRIEncoding::IP(Prefix::parse(&mut cursor, AFI::IPV4)?));
+            }
         }
 
         Ok(Update {
@@ -312,6 +321,20 @@ impl Update {
     }
 }
 
+/// Represents NLRIEncodings present in the NRLI section of an UPDATE message.
+#[derive(Debug, Clone)]
+#[allow(non_camel_case_types)]
+pub enum NLRIEncoding {
+    /// Encodings that specify only an IP present, either IPv4 or IPv6
+    IP(Prefix),
+
+    /// Encodings that specify a Path Identifier as specified in RFC7911. (Prefix, Label)
+    IP_WITH_PATH_ID((Prefix, u32)),
+
+    /// Encodings that specify a Path Identifier as specified in RFC8277. (Prefix, MPLS Label)
+    IP_MPLS((Prefix, u32)),
+}
+
 /// Represents a generic prefix. For example an IPv4 prefix or IPv6 prefix.
 #[derive(Clone)]
 pub struct Prefix {
@@ -354,6 +377,7 @@ impl Prefix {
         let length = stream.read_u8()?;
         let mut prefix: Vec<u8> = vec![0; ((length + 7) / 8) as usize];
         stream.read_exact(&mut prefix)?;
+
         Ok(Prefix {
             protocol,
             length,
@@ -388,6 +412,9 @@ impl RouteRefresh {
 pub struct Capabilities {
     /// Support for 4-octet AS number capability.
     pub FOUR_OCTET_ASN_SUPPORT: bool,
+
+    /// Support for reading NLRI extended with a Path Identifier
+    pub EXTENDED_PATH_NLRI_SUPPORT: bool,
 }
 
 impl Default for Capabilities {
@@ -395,6 +422,9 @@ impl Default for Capabilities {
         Capabilities {
             // Parse ASN as 32-bit ASN by default.
             FOUR_OCTET_ASN_SUPPORT: true,
+
+            // Do not use Extended Path NLRI by default
+            EXTENDED_PATH_NLRI_SUPPORT: false,
         }
     }
 }
@@ -451,7 +481,10 @@ where
             }
             3 => Ok((header, Message::Notification)),
             4 => Ok((header, Message::KeepAlive)),
-            5 => Ok((header, Message::RouteRefresh(RouteRefresh::parse(&mut self.stream)?))),
+            5 => Ok((
+                header,
+                Message::RouteRefresh(RouteRefresh::parse(&mut self.stream)?),
+            )),
             _ => Err(Error::new(
                 ErrorKind::Other,
                 "Unknown BGP message type found in BGPHeader",

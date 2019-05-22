@@ -1,4 +1,5 @@
 use crate::Capabilities;
+use crate::NLRIEncoding;
 use crate::{Prefix, AFI};
 use byteorder::{BigEndian, ReadBytesExt};
 use std::io::{Cursor, Error, ErrorKind, Read};
@@ -49,7 +50,7 @@ pub enum PathAttribute {
     /// Indicates how an UPDATE message has been generated. Defined in [RFC4271](http://www.iana.org/go/rfc4271).
     ORIGIN(Origin),
 
-    /// Represents the path through which an UPDATE message travelled. Defined in [RFC4271](http://www.iana.org/go/rfc4271).
+    /// Represents the path through which an UPDATE message traveled. Defined in [RFC4271](http://www.iana.org/go/rfc4271).
     AS_PATH(ASPath),
 
     /// Indicates IP address that is to be used as a next hop. Defined in [RFC4271](http://www.iana.org/go/rfc4271).
@@ -229,7 +230,9 @@ impl PathAttribute {
                 stream.read_u32::<BigEndian>()?,
             ))),
             14 => Ok(PathAttribute::MP_REACH_NLRI(MPReachNLRI::parse(
-                stream, length,
+                stream,
+                length,
+                capabilities,
             )?)),
             15 => Ok(PathAttribute::MP_UNREACH_NLRI(MPUnreachNLRI::parse(
                 stream, length,
@@ -409,15 +412,14 @@ impl Origin {
     }
 }
 
-/// Represents the path that an announcement has travelled.
+/// Represents the path that an announcement has traveled.
 #[derive(Debug, Clone)]
 pub struct ASPath {
-    /// A collection of segments that together form the path that a message has travelled.
+    /// A collection of segments that together form the path that a message has traveled.
     pub segments: Vec<Segment>,
 }
 
 impl ASPath {
-    // TODO: Give argument that determines the AS size.
     fn parse(stream: &mut Read, length: u16, capabilities: &Capabilities) -> Result<ASPath, Error> {
         let segments = if capabilities.FOUR_OCTET_ASN_SUPPORT {
             Segment::parse_u32_segments(stream, length)?
@@ -458,10 +460,10 @@ impl ASPath {
 #[derive(Debug, Clone)]
 #[allow(non_camel_case_types)]
 pub enum Segment {
-    /// Represents a sequence of ASN that an announcement travelled through.
+    /// Represents a sequence of ASN that an announcement traveled through.
     AS_SEQUENCE(Vec<u32>),
 
-    /// Represents a set of ASN through which a BGP message travelled.
+    /// Represents a set of ASN through which a BGP message traveled.
     AS_SET(Vec<u32>),
 }
 
@@ -508,6 +510,7 @@ impl Segment {
 
         // While there are multiple AS_PATH segments, parse the segments.
         let mut size: i32 = length as i32;
+
         while size != 0 {
             // The type of a segment, either AS_SET or AS_SEQUENCE.
             let segment_type = stream.read_u8()?;
@@ -554,12 +557,16 @@ pub struct MPReachNLRI {
     pub next_hop: Vec<u8>,
 
     /// The routes that are being announced.
-    pub announced_routes: Vec<Prefix>,
+    pub announced_routes: Vec<NLRIEncoding>,
 }
 
 impl MPReachNLRI {
     // TODO: Give argument that determines the AS size.
-    fn parse(stream: &mut Read, length: u16) -> Result<MPReachNLRI, Error> {
+    fn parse(
+        stream: &mut Read,
+        length: u16,
+        capabilities: &Capabilities,
+    ) -> Result<MPReachNLRI, Error> {
         let afi = AFI::from(stream.read_u16::<BigEndian>()?)?;
         let safi = stream.read_u8()?;
 
@@ -577,10 +584,19 @@ impl MPReachNLRI {
         let mut buffer = vec![0; usize::from(size)];
         stream.read_exact(&mut buffer)?;
         let mut cursor = Cursor::new(buffer);
-        let mut announced_routes: Vec<Prefix> = Vec::with_capacity(4);
+        let mut announced_routes: Vec<NLRIEncoding> = Vec::with_capacity(4);
 
-        while cursor.position() < u64::from(size) {
-            announced_routes.push(Prefix::parse(&mut cursor, afi)?);
+        if capabilities.EXTENDED_PATH_NLRI_SUPPORT {
+            while cursor.position() < u64::from(size) {
+                let path_id = stream.read_u32::<BigEndian>()?;
+                let prefix = Prefix::parse(&mut cursor, afi)?;
+                announced_routes.push(NLRIEncoding::IP_WITH_PATH_ID((prefix, path_id)));
+            }
+        } else {
+            while cursor.position() < u64::from(size) {
+                let prefix = Prefix::parse(&mut cursor, afi)?;
+                announced_routes.push(NLRIEncoding::IP(prefix));
+            }
         }
 
         Ok(MPReachNLRI {
