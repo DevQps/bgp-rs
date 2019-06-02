@@ -127,19 +127,19 @@ pub enum Message {
 #[derive(Debug)]
 pub struct Open {
     /// Indicates the protocol version number of the message. The current BGP version number is 4.
-    version: u8,
+    pub version: u8,
 
     /// Indicates the Autonomous System number of the sender.
-    peer_asn: u16,
+    pub peer_asn: u16,
 
     /// Indicates the number of seconds the sender proposes for the value of the Hold Timer.
-    hold_timer: u16,
+    pub hold_timer: u16,
 
     /// Indicates the BGP Identifier of the sender.
-    identifier: u32,
+    pub identifier: u32,
 
     /// Optional Parameters
-    parameters: Vec<OpenParameter>,
+    pub parameters: Vec<OpenParameter>,
 }
 
 impl Open {
@@ -204,13 +204,13 @@ impl OpenParameter {
 #[derive(Debug)]
 pub struct Update {
     /// A collection of routes that have been withdrawn.
-    withdrawn_routes: Vec<Prefix>,
+    pub withdrawn_routes: Vec<Prefix>,
 
     /// A collection of attributes associated with the announced routes.
-    attributes: Vec<PathAttribute>,
+    pub attributes: Vec<PathAttribute>,
 
     /// A collection of routes that are announced by the peer.
-    announced_routes: Vec<NLRIEncoding>,
+    pub announced_routes: Vec<NLRIEncoding>,
 }
 
 impl Update {
