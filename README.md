@@ -35,7 +35,7 @@ fn main() {
 
            // Read each BGP (Header, Message)
            let cursor = Cursor::new(x.message);
-           let mut reader = bgp_rs::Reader { stream: cursor };
+           let mut reader = bgp_rs::Reader::new(cursor);
            let (_, message) = reader.read().unwrap();
 
            // If this is an UPDATE message that contains announcements, extract its origin.
