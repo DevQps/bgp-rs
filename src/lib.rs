@@ -114,7 +114,7 @@ pub enum Message {
     Update(Update),
 
     /// Represent a BGP NOTIFICATION message.
-    Notification,
+    Notification(Notification),
 
     /// Represent a BGP KEEPALIVE message.
     KeepAlive,
@@ -388,7 +388,39 @@ impl Prefix {
 
 /// Represents a BGP Notification message.
 #[derive(Debug)]
-pub struct Notification {}
+pub struct Notification {
+    /// Major Error Code [RFC4271]
+    pub major_err_code: u8,
+    /// Minor Error Code [RFC4271]
+    pub minor_err_code: u8,
+    /// Notification message
+    pub message: String,
+}
+
+impl Notification {
+    fn parse(stream: &mut Read) -> Result<Notification, Error> {
+        let major_err_code = stream.read_u8()?;
+        let minor_err_code = stream.read_u8()?;
+        let mut message = String::new();
+        stream.read_to_string(&mut message)?;
+
+        Ok(Notification {
+            major_err_code,
+            minor_err_code,
+            message,
+        })
+    }
+}
+
+impl Display for Notification {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        write!(
+            f,
+            "[{}:{}] {}",
+            self.major_err_code, self.minor_err_code, self.message
+        )
+    }
+}
 
 /// Represents a BGP Route Refresh message.
 #[derive(Debug)]
@@ -409,6 +441,7 @@ impl RouteRefresh {
 
 /// Contains the BGP session parameters that distinguish how BGP messages should be parsed.
 #[allow(non_snake_case)]
+#[derive(Clone, Debug)]
 pub struct Capabilities {
     /// Support for 4-octet AS number capability.
     pub FOUR_OCTET_ASN_SUPPORT: bool,
@@ -479,7 +512,10 @@ where
                 )?);
                 Ok((header, attribute))
             }
-            3 => Ok((header, Message::Notification)),
+            3 => Ok((
+                header,
+                Message::Notification(Notification::parse(&mut self.stream)?),
+            )),
             4 => Ok((header, Message::KeepAlive)),
             5 => Ok((
                 header,
