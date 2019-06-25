@@ -441,7 +441,7 @@ impl RouteRefresh {
 
 /// Contains the BGP session parameters that distinguish how BGP messages should be parsed.
 #[allow(non_snake_case)]
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Capabilities {
     /// Support for 4-octet AS number capability.
     pub FOUR_OCTET_ASN_SUPPORT: bool,
