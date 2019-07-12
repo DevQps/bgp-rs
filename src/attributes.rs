@@ -4,6 +4,7 @@ use crate::{Prefix, AFI};
 use byteorder::{BigEndian, ReadBytesExt};
 use std::io::{Cursor, Error, ErrorKind, Read};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::convert::TryFrom;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
@@ -408,6 +409,32 @@ impl Origin {
             1 => Ok(Origin::EGP),
             2 => Ok(Origin::INCOMPLETE),
             _ => Err(Error::new(ErrorKind::Other, "Unknown origin type found.")),
+        }
+    }
+}
+
+impl TryFrom<&str> for Origin {
+    type Error = Error;
+
+    fn try_from(origin: &str) -> Result<Origin, Self::Error> {
+        match origin {
+            "IGP" => Ok(Origin::IGP),
+            "EGP" => Ok(Origin::EGP),
+            "Incomplete" => Ok(Origin::INCOMPLETE),
+            _ => Err(Error::new(
+                    ErrorKind::Other,
+                    format!("Unknown origin type found: {}", origin),
+                ))
+        }
+    }
+}
+
+impl From<&Origin> for String {
+    fn from(origin: &Origin) -> String {
+        match origin {
+            Origin::IGP => String::from("IGP"),
+            Origin::EGP => String::from("EGP"),
+            Origin::INCOMPLETE => String::from("Incomplete"),
         }
     }
 }
