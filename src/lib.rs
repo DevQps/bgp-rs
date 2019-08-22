@@ -232,6 +232,8 @@ impl AddPathDirection {
 /// Represents a known capability held in an OpenParameter
 #[derive(Debug)]
 pub enum OpenCapability {
+    /// Indicates the speaker is willing to exchange multiple protocols over this session.
+    MultiProtocol((AFI, SAFI)),
     /// Indicates the speaker supports 4 byte ASNs and includes the ASN of the speaker.
     FourByteASN(u32),
     /// Indicates the speaker supports sending/receiving multiple paths for a given prefix.
@@ -257,6 +259,15 @@ impl OpenCapability {
         Ok((
             2 + (cap_length as u16),
             match cap_code {
+                1 => {
+                    if cap_length != 4 {
+                        return Err(Error::new(ErrorKind::InvalidData, "Multi-Protocol capability must be 4 bytes in length"));
+                    }
+                    let afi = AFI::from(stream.read_u16::<BigEndian>()?)?;
+                    let _ = stream.read_u8()?;
+                    let safi = SAFI::from(stream.read_u8()?)?;
+                    OpenCapability::MultiProtocol((afi, safi))
+                },
                 65 => {
                     if cap_length != 4 {
                         return Err(Error::new(ErrorKind::InvalidData, "4-byte ASN capability must be 4 bytes in length"));
