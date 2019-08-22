@@ -91,6 +91,33 @@ impl AFI {
     }
 }
 
+/// Represents an Subsequent Address Family Identifier. Currently only Unicast and Multicast are
+/// supported.
+#[derive(Debug, Copy, Clone)]
+#[repr(u8)]
+pub enum SAFI {
+    /// Unicast Forwarding
+    Unicast = 1,
+    /// Multicast Forwarding
+    Multicast = 2,
+}
+
+impl SAFI {
+    fn from(value: u8) -> Result<SAFI, Error> {
+        match value {
+            1 => Ok(SAFI::Unicast),
+            2 => Ok(SAFI::Multicast),
+            _ => {
+                let msg = format!(
+                    "Number {} does not represent a valid subsequent address family.",
+                    value
+                );
+                Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
+            }
+        }
+    }
+}
+
 /// Represents the BGP header accompanying every BGP message.
 #[derive(Debug)]
 pub struct Header {
@@ -394,14 +421,14 @@ pub struct Notification {}
 #[derive(Debug)]
 pub struct RouteRefresh {
     afi: AFI,
-    safi: u8,
+    safi: SAFI,
 }
 
 impl RouteRefresh {
     fn parse(stream: &mut Read) -> Result<RouteRefresh, Error> {
         let afi = AFI::from(stream.read_u16::<BigEndian>()?)?;
         let _ = stream.read_u8()?;
-        let safi = stream.read_u8()?;
+        let safi = SAFI::from(stream.read_u8()?)?;
 
         Ok(RouteRefresh { afi, safi })
     }
