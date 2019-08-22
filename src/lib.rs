@@ -65,7 +65,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::net::IpAddr;
 
-/// Represents an Address Family Idenfitier. Currently only IPv4 and IPv6 are supported.
+/// Represents an Address Family Identifier. Currently only IPv4 and IPv6 are supported.
 #[derive(Debug, Copy, Clone)]
 #[repr(u16)]
 pub enum AFI {
