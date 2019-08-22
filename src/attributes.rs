@@ -150,6 +150,22 @@ pub enum PathAttribute {
     ATTR_SET((u32, Vec<PathAttribute>)),
 }
 
+struct ReadCountingStream<'a> {
+    stream: &'a mut Read,
+    remaining: usize,
+}
+
+impl<'a> Read for ReadCountingStream<'a> {
+    fn read(&mut self, buff: &mut [u8]) -> Result<usize, Error> {
+        if buff.len() > self.remaining {
+            return Err(Error::new(ErrorKind::Other, "Attribute decode tried to read more than its length"));
+        }
+        let res = self.stream.read(buff)?;
+        self.remaining -= res;
+        Ok(res)
+    }
+}
+
 impl PathAttribute {
     ///
     /// Reads a Path Attribute from an object that implements Read.
@@ -175,6 +191,23 @@ impl PathAttribute {
             stream.read_u16::<BigEndian>()?
         };
 
+        let mut count_stream = ReadCountingStream {
+            stream: stream,
+            remaining: length as usize,
+        };
+
+        let res = PathAttribute::parse_limited(&mut count_stream, capabilities, flags, code, length);
+
+        // Some routes include bogus attributes, which we attempt to parse, but if they're supposed
+        // to be longer than we parsed, just ignore the remaining bytes.
+        if count_stream.remaining != 0 {
+            let mut dummy_buff = vec![0; usize::from(count_stream.remaining)];
+            stream.read_exact(&mut dummy_buff)?;
+        }
+        res
+    }
+
+    fn parse_limited(stream: &mut Read, capabilities: &Capabilities, _flags: u8, code: u8, length: u16) -> Result<PathAttribute, Error> {
         match code {
             1 => Ok(PathAttribute::ORIGIN(Origin::parse(stream)?)),
             2 => Ok(PathAttribute::AS_PATH(ASPath::parse(

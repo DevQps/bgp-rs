@@ -246,7 +246,13 @@ impl Update {
         let mut attributes: Vec<PathAttribute> = Vec::with_capacity(8);
         let mut cursor = Cursor::new(buffer);
         while cursor.position() < length as u64 {
-            let attribute = PathAttribute::parse(&mut cursor, capabilities)?;
+            let attribute = match PathAttribute::parse(&mut cursor, capabilities) {
+                Ok(a) => a,
+                Err(e) => match e.kind() {
+                    ErrorKind::UnexpectedEof => return Err(e),
+                    _ => continue,
+                },
+            };
             attributes.push(attribute);
         }
 
