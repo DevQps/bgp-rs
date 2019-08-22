@@ -198,17 +198,61 @@ impl Open {
     }
 }
 
+/// Represents a known capability held in an OpenParameter
+#[derive(Debug)]
+pub enum OpenCapability {
+    /// Unknown (or unsupported) capability
+    Unknown {
+        /// The type of the capability.
+        cap_code: u8,
+
+        /// The length of the data that this capability holds in bytes.
+        cap_length: u8,
+
+        /// The value that is set for this capability.
+        value: Vec<u8>,
+    },
+}
+
+impl OpenCapability {
+    fn parse(stream: &mut Read) -> Result<(u16, OpenCapability), Error> {
+        let cap_code = stream.read_u8()?;
+        let cap_length = stream.read_u8()?;
+
+        Ok((
+            2 + (cap_length as u16),
+            match cap_code {
+                _ => {
+                    let mut value = vec![0; cap_length as usize];
+                    stream.read_exact(&mut value)?;
+                    OpenCapability::Unknown {
+                        cap_code,
+                        cap_length,
+                        value,
+                    }
+                },
+            }
+        ))
+    }
+}
+
 /// Represents a parameter in the optional parameter section of an Open message.
 #[derive(Debug)]
-pub struct OpenParameter {
-    /// The type of the parameter.
-    pub param_type: u8,
+pub enum OpenParameter {
+    /// A list of capabilities supported by the sender.
+    Capabilities(Vec<OpenCapability>),
 
-    /// The length of the data that this parameter holds in bytes.
-    pub param_length: u8,
+    /// Unknown (or unsupported) parameter
+    Unknown {
+        /// The type of the parameter.
+        param_type: u8,
 
-    /// The value that is set for this parameter.
-    pub value: Vec<u8>,
+        /// The length of the data that this parameter holds in bytes.
+        param_length: u8,
+
+        /// The value that is set for this parameter.
+        value: Vec<u8>,
+    },
 }
 
 impl OpenParameter {
@@ -216,16 +260,31 @@ impl OpenParameter {
         let param_type = stream.read_u8()?;
         let param_length = stream.read_u8()?;
 
-        let mut value = vec![0; param_length as usize];
-        stream.read_exact(&mut value)?;
-
         Ok((
             2 + (param_length as u16),
-            OpenParameter {
-                param_type,
-                param_length,
-                value,
-            },
+            if param_type == 2 {
+                let mut bytes_read: i32 = 0;
+                let mut capabilities = Vec::with_capacity(param_length as usize / 2);
+                while bytes_read < param_length as i32 {
+                    let (cap_length, cap) = OpenCapability::parse(stream)?;
+                    capabilities.push(cap);
+                    bytes_read += cap_length as i32;
+                }
+                if bytes_read != param_length as i32 {
+                    return Err(Error::new(ErrorKind::InvalidData,
+                        format!("Capability length {} does not match parameter length {}", bytes_read, param_length)));
+                } else {
+                    OpenParameter::Capabilities(capabilities)
+                }
+            } else {
+                let mut value = vec![0; param_length as usize];
+                stream.read_exact(&mut value)?;
+                OpenParameter::Unknown {
+                    param_type,
+                    param_length,
+                    value,
+                }
+            }
         ))
     }
 }
