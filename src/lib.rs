@@ -198,9 +198,44 @@ impl Open {
     }
 }
 
+/// The direction which an ADD-PATH capabilty indicates a peer can provide additional paths.
+#[derive(Debug, Copy, Clone)]
+#[repr(u8)]
+pub enum AddPathDirection {
+    /// Indiates a peer can recieve additional paths.
+    ReceivePaths = 1,
+
+    /// Indiates a peer can send additional paths.
+    SendPaths = 2,
+
+    /// Indiates a peer can both send and receive additional paths.
+    SendReceivePaths = 3,
+}
+
+impl AddPathDirection {
+    fn from(value: u8) -> Result<AddPathDirection, Error> {
+        match value {
+            1 => Ok(AddPathDirection::ReceivePaths),
+            2 => Ok(AddPathDirection::SendPaths),
+            3 => Ok(AddPathDirection::SendReceivePaths),
+            _ => {
+                let msg = format!(
+                    "Number {} does not represent a valid ADD-PATH direction.",
+                    value
+                );
+                Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
+            }
+        }
+    }
+}
+
 /// Represents a known capability held in an OpenParameter
 #[derive(Debug)]
 pub enum OpenCapability {
+    /// Indicates the speaker supports 4 byte ASNs and includes the ASN of the speaker.
+    FourByteASN(u32),
+    /// Indicates the speaker supports sending/receiving multiple paths for a given prefix.
+    AddPath(Vec<(AFI, SAFI, AddPathDirection)>),
     /// Unknown (or unsupported) capability
     Unknown {
         /// The type of the capability.
@@ -222,6 +257,26 @@ impl OpenCapability {
         Ok((
             2 + (cap_length as u16),
             match cap_code {
+                65 => {
+                    if cap_length != 4 {
+                        return Err(Error::new(ErrorKind::InvalidData, "4-byte ASN capability must be 4 bytes in length"));
+                    }
+                    OpenCapability::FourByteASN(stream.read_u32::<BigEndian>()?)
+                },
+                69 => {
+                    if cap_length % 4 != 0 {
+                        return Err(Error::new(ErrorKind::InvalidData, "ADD-PATH capability length must be divisble by 4"));
+                    }
+                    let mut add_paths = Vec::with_capacity(cap_length as usize / 4);
+                    for _ in 0..(cap_length / 4) {
+                        add_paths.push((
+                            AFI::from(stream.read_u16::<BigEndian>()?)?,
+                            SAFI::from(stream.read_u8()?)?,
+                            AddPathDirection::from(stream.read_u8()?)?
+                        ));
+                    }
+                    OpenCapability::AddPath(add_paths)
+                },
                 _ => {
                     let mut value = vec![0; cap_length as usize];
                     stream.read_exact(&mut value)?;
