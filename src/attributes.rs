@@ -268,7 +268,7 @@ impl PathAttribute {
                 capabilities,
             )?)),
             15 => Ok(PathAttribute::MP_UNREACH_NLRI(MPUnreachNLRI::parse(
-                stream, length,
+                stream, length, capabilities
             )?)),
             16 => {
                 let mut communities = Vec::with_capacity(usize::from(length / 8));
@@ -621,7 +621,7 @@ impl MPReachNLRI {
 
         if capabilities.EXTENDED_PATH_NLRI_SUPPORT {
             while cursor.position() < u64::from(size) {
-                let path_id = stream.read_u32::<BigEndian>()?;
+                let path_id = cursor.read_u32::<BigEndian>()?;
                 let prefix = Prefix::parse(&mut cursor, afi)?;
                 announced_routes.push(NLRIEncoding::IP_WITH_PATH_ID((prefix, path_id)));
             }
@@ -651,12 +651,12 @@ pub struct MPUnreachNLRI {
     pub safi: u8,
 
     /// The routes being withdrawn.
-    pub withdrawn_routes: Vec<Prefix>,
+    pub withdrawn_routes: Vec<NLRIEncoding>,
 }
 
 impl MPUnreachNLRI {
     // TODO: Handle different ASN sizes.
-    fn parse(stream: &mut Read, length: u16) -> Result<MPUnreachNLRI, Error> {
+    fn parse(stream: &mut Read, length: u16, capabilities: &Capabilities) -> Result<MPUnreachNLRI, Error> {
         let afi = AFI::from(stream.read_u16::<BigEndian>()?)?;
         let safi = stream.read_u8()?;
 
@@ -668,10 +668,19 @@ impl MPUnreachNLRI {
         let mut buffer = vec![0; usize::from(size)];
         stream.read_exact(&mut buffer)?;
         let mut cursor = Cursor::new(buffer);
-        let mut withdrawn_routes: Vec<Prefix> = Vec::with_capacity(4);
+        let mut withdrawn_routes: Vec<NLRIEncoding> = Vec::with_capacity(4);
 
-        while cursor.position() < u64::from(size) {
-            withdrawn_routes.push(Prefix::parse(&mut cursor, afi)?);
+        if capabilities.EXTENDED_PATH_NLRI_SUPPORT {
+            while cursor.position() < u64::from(size) {
+                let path_id = cursor.read_u32::<BigEndian>()?;
+                let prefix = Prefix::parse(&mut cursor, afi)?;
+                withdrawn_routes.push(NLRIEncoding::IP_WITH_PATH_ID((prefix, path_id)));
+            }
+        } else {
+            while cursor.position() < u64::from(size) {
+                let prefix = Prefix::parse(&mut cursor, afi)?;
+                withdrawn_routes.push(NLRIEncoding::IP(prefix));
+            }
         }
 
         Ok(MPUnreachNLRI {
