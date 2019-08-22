@@ -274,6 +274,8 @@ impl AddPathDirection {
 pub enum OpenCapability {
     /// Indicates the speaker is willing to exchange multiple protocols over this session.
     MultiProtocol((AFI, SAFI)),
+    /// Indicates the speaker supports route refresh.
+    RouteRefresh,
     /// Indicates the speaker supports 4 byte ASNs and includes the ASN of the speaker.
     FourByteASN(u32),
     /// Indicates the speaker supports sending/receiving multiple paths for a given prefix.
@@ -307,6 +309,12 @@ impl OpenCapability {
                     let _ = stream.read_u8()?;
                     let safi = SAFI::from(stream.read_u8()?)?;
                     OpenCapability::MultiProtocol((afi, safi))
+                },
+                2 => {
+                    if cap_length != 0 {
+                        return Err(Error::new(ErrorKind::InvalidData, "Route-Refresh capability must be 0 bytes in length"));
+                    }
+                    OpenCapability::RouteRefresh
                 },
                 65 => {
                     if cap_length != 4 {
@@ -349,6 +357,10 @@ impl OpenCapability {
                 write.write_u16::<BigEndian>(*afi as u16)?;
                 write.write_u8(0)?;
                 write.write_u8(*safi as u8)
+            },
+            OpenCapability::RouteRefresh => {
+                write.write_u8(2)?;
+                write.write_u8(0)
             },
             OpenCapability::FourByteASN(asn) => {
                 write.write_u8(65)?;
