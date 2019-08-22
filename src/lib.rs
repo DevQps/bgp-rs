@@ -154,19 +154,19 @@ pub enum Message {
 #[derive(Debug)]
 pub struct Open {
     /// Indicates the protocol version number of the message. The current BGP version number is 4.
-    version: u8,
+    pub version: u8,
 
     /// Indicates the Autonomous System number of the sender.
-    peer_asn: u16,
+    pub peer_asn: u16,
 
     /// Indicates the number of seconds the sender proposes for the value of the Hold Timer.
-    hold_timer: u16,
+    pub hold_timer: u16,
 
     /// Indicates the BGP Identifier of the sender.
-    identifier: u32,
+    pub identifier: u32,
 
     /// Optional Parameters
-    parameters: Vec<OpenParameter>,
+    pub parameters: Vec<OpenParameter>,
 }
 
 impl Open {
