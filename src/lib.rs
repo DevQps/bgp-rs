@@ -204,7 +204,7 @@ impl OpenParameter {
 #[derive(Debug)]
 pub struct Update {
     /// A collection of routes that have been withdrawn.
-    withdrawn_routes: Vec<Prefix>,
+    withdrawn_routes: Vec<NLRIEncoding>,
 
     /// A collection of attributes associated with the announced routes.
     attributes: Vec<PathAttribute>,
@@ -229,10 +229,19 @@ impl Update {
         stream.read_exact(&mut buffer)?;
         nlri_length -= length;
 
-        let mut withdrawn_routes: Vec<Prefix> = Vec::with_capacity(0);
+        let mut withdrawn_routes: Vec<NLRIEncoding> = Vec::with_capacity(0);
         let mut cursor = Cursor::new(buffer);
-        while cursor.position() < length as u64 {
-            withdrawn_routes.push(Prefix::parse(&mut cursor, AFI::IPV4)?);
+
+        if capabilities.EXTENDED_PATH_NLRI_SUPPORT {
+            while cursor.position() < length as u64 {
+                let path_id = cursor.read_u32::<BigEndian>()?;
+                let prefix = Prefix::parse(&mut cursor, AFI::IPV4)?;
+                withdrawn_routes.push(NLRIEncoding::IP_WITH_PATH_ID((prefix, path_id)));
+            }
+        } else {
+            while cursor.position() < length as u64 {
+                withdrawn_routes.push(NLRIEncoding::IP(Prefix::parse(&mut cursor, AFI::IPV4)?));
+            }
         }
 
         // ----------------------------
