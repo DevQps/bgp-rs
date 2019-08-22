@@ -175,14 +175,17 @@ impl Open {
         let peer_asn = stream.read_u16::<BigEndian>()?;
         let hold_timer = stream.read_u16::<BigEndian>()?;
         let identifier = stream.read_u32::<BigEndian>()?;
-        let mut length = stream.read_u8()?;
+        let mut length = stream.read_u8()? as i32;
 
         let mut parameters: Vec<OpenParameter> = Vec::with_capacity(length as usize);
 
         while length > 0 {
             let (bytes_read, parameter) = OpenParameter::parse(stream)?;
             parameters.push(parameter);
-            length -= bytes_read;
+            length -= bytes_read as i32;
+        }
+        if length != 0 {
+            return Err(Error::new(ErrorKind::InvalidData, "Open length does not match options length"));
         }
 
         Ok(Open {
@@ -209,7 +212,7 @@ pub struct OpenParameter {
 }
 
 impl OpenParameter {
-    fn parse(stream: &mut Read) -> Result<(u8, OpenParameter), Error> {
+    fn parse(stream: &mut Read) -> Result<(u16, OpenParameter), Error> {
         let param_type = stream.read_u8()?;
         let param_length = stream.read_u8()?;
 
@@ -217,7 +220,7 @@ impl OpenParameter {
         stream.read_exact(&mut value)?;
 
         Ok((
-            2 + param_length,
+            2 + (param_length as u16),
             OpenParameter {
                 param_type,
                 param_length,
