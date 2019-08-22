@@ -56,14 +56,25 @@
 /// Contains the implementation of all BGP path attributes.
 pub mod attributes;
 
-use byteorder::{BigEndian, ReadBytesExt};
-use std::io::{Cursor, Error, ErrorKind, Read};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use std::io::{Cursor, Error, ErrorKind, Read, Write};
 
 pub use crate::attributes::*;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::net::IpAddr;
+
+struct SizeCalcWriter(usize);
+impl Write for SizeCalcWriter {
+    fn write(&mut self, b: &[u8]) -> Result<usize, Error> {
+        self.0 += b.len();
+        Ok(b.len())
+    }
+    fn flush (&mut self) -> Result<(), Error> {
+        Ok(())
+    }
+}
 
 /// Represents an Address Family Identifier. Currently only IPv4 and IPv6 are supported.
 #[derive(Debug, Copy, Clone)]
@@ -131,6 +142,14 @@ pub struct Header {
     pub record_type: u8,
 }
 
+impl Header {
+    fn write(&self, write: &mut Write) -> Result<(), Error> {
+        write.write_all(&self.marker)?;
+        write.write_u16::<BigEndian>(self.length)?;
+        write.write_u8(self.record_type)
+    }
+}
+
 /// Represents a single BGP message.
 #[derive(Debug)]
 pub enum Message {
@@ -195,6 +214,27 @@ impl Open {
             identifier,
             parameters,
         })
+    }
+
+    fn write(&self, write: &mut Write) -> Result<(), Error> {
+        write.write_u8(self.version)?;
+        write.write_u16::<BigEndian>(self.peer_asn)?;
+        write.write_u16::<BigEndian>(self.hold_timer)?;
+        write.write_u32::<BigEndian>(self.identifier)?;
+
+        let mut len = SizeCalcWriter(0);
+        for p in self.parameters.iter() {
+            p.write(&mut len)?;
+        }
+        if len.0 > std::u8::MAX as usize {
+            return Err(Error::new(ErrorKind::Other, format!("Cannot encode parameters with length {}", len.0)));
+        }
+        write.write_u8(len.0 as u8)?;
+
+        for p in self.parameters.iter() {
+            p.write(write)?;
+        }
+        Ok(())
     }
 }
 
@@ -300,6 +340,41 @@ impl OpenCapability {
             }
         ))
     }
+
+    fn write(&self, write: &mut Write) -> Result<(), Error> {
+        match self {
+            OpenCapability::MultiProtocol((afi, safi)) => {
+                write.write_u8(1)?;
+                write.write_u8(4)?;
+                write.write_u16::<BigEndian>(*afi as u16)?;
+                write.write_u8(0)?;
+                write.write_u8(*safi as u8)
+            },
+            OpenCapability::FourByteASN(asn) => {
+                write.write_u8(65)?;
+                write.write_u8(4)?;
+                write.write_u32::<BigEndian>(*asn)
+            },
+            OpenCapability::AddPath(add_paths) => {
+                write.write_u8(69)?;
+                if add_paths.len() * 4 > std::u8::MAX as usize {
+                    return Err(Error::new(ErrorKind::Other, format!("Cannot encode ADD-PATH with too many AFIs {}", add_paths.len())));
+                }
+                write.write_u8(add_paths.len() as u8 * 4)?;
+                for p in add_paths.iter() {
+                    write.write_u16::<BigEndian>(p.0 as u16)?;
+                    write.write_u8(p.1 as u8)?;
+                    write.write_u8(p.2 as u8)?;
+                }
+                Ok(())
+            },
+            OpenCapability::Unknown { cap_code, cap_length, value } => {
+                write.write_u8(*cap_code)?;
+                write.write_u8(*cap_length)?;
+                write.write_all(&value)
+            },
+        }
+    }
 }
 
 /// Represents a parameter in the optional parameter section of an Open message.
@@ -352,6 +427,33 @@ impl OpenParameter {
                 }
             }
         ))
+    }
+
+    fn write(&self, write: &mut Write) -> Result<(), Error> {
+        match self {
+            OpenParameter::Capabilities(caps) => {
+                write.write_u8(2)?;
+
+                let mut len = SizeCalcWriter(0);
+                for c in caps.iter() {
+                    c.write(&mut len)?;
+                }
+                if len.0 > std::u8::MAX as usize {
+                    return Err(Error::new(ErrorKind::Other, format!("Cannot encode capabilities with length {}", len.0)));
+                }
+                write.write_u8(len.0 as u8)?;
+
+                for c in caps.iter() {
+                    c.write(write)?;
+                }
+                Ok(())
+            },
+            OpenParameter::Unknown { param_type, param_length, value } => {
+                write.write_u8(*param_type)?;
+                write.write_u8(*param_length)?;
+                write.write_all(&value)
+            },
+        }
     }
 }
 
@@ -595,6 +697,43 @@ where
     /// Capability parameters that distinguish how BGP messages should be parsed.
     pub capabilities: Capabilities,
 }
+
+
+
+impl Message {
+    fn write_noheader(&self, write: &mut Write) -> Result<(), Error> {
+        match self {
+            Message::Open(open) => open.write(write),
+            Message::Update(_update) => unimplemented!(),
+            Message::Notification => unimplemented!(),
+            Message::KeepAlive => Ok(()),
+            Message::RouteRefresh(_refresh) => unimplemented!(),
+        }
+    }
+
+    /// Writes self into the stream, including the appropriate header.
+    pub fn write(&self, write: &mut Write) -> Result<(), Error> {
+        let mut len = SizeCalcWriter(0);
+        self.write_noheader(&mut len)?;
+        if len.0 + 16 + 2 + 1 > std::u16::MAX as usize {
+            return Err(Error::new(ErrorKind::Other, format!("Cannot encode message of length {}", len.0)));
+        }
+        let header = Header {
+            marker: [0xff; 16],
+            length: (len.0 + 16 + 2 + 1) as u16,
+            record_type: match self {
+                Message::Open(_) => 1,
+                Message::Update(_) => 2,
+                Message::Notification => 3,
+                Message::KeepAlive => 4,
+                Message::RouteRefresh(_) => 5,
+            },
+        };
+        header.write(write)?;
+        self.write_noheader(write)
+    }
+}
+
 
 impl<T> Reader<T>
 where
