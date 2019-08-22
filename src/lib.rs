@@ -644,6 +644,14 @@ impl Debug for Prefix {
 impl Prefix {
     fn parse(stream: &mut Read, protocol: AFI) -> Result<Prefix, Error> {
         let length = stream.read_u8()?;
+
+        if length > match protocol {
+            AFI::IPV4 => 32,
+            AFI::IPV6 => 128,
+        } {
+            return Err(Error::new(ErrorKind::Other, format!("Bogus prefix length {}", length)));
+        }
+
         let mut prefix: Vec<u8> = vec![0; ((length + 7) / 8) as usize];
         stream.read_exact(&mut prefix)?;
 
