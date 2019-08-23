@@ -644,6 +644,12 @@ impl From<&Prefix> for IpAddr {
     }
 }
 
+impl From<&Prefix> for (IpAddr, u8) {
+    fn from(prefix: &Prefix) -> (IpAddr, u8) {
+        (IpAddr::from(prefix), prefix.length)
+    }
+}
+
 impl Display for Prefix {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         write!(f, "{}/{}", IpAddr::from(self), self.length)
