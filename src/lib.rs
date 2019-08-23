@@ -473,13 +473,13 @@ impl OpenParameter {
 #[derive(Debug)]
 pub struct Update {
     /// A collection of routes that have been withdrawn.
-    withdrawn_routes: Vec<NLRIEncoding>,
+    pub withdrawn_routes: Vec<NLRIEncoding>,
 
     /// A collection of attributes associated with the announced routes.
-    attributes: Vec<PathAttribute>,
+    pub attributes: Vec<PathAttribute>,
 
     /// A collection of routes that are announced by the peer.
-    announced_routes: Vec<NLRIEncoding>,
+    pub announced_routes: Vec<NLRIEncoding>,
 }
 
 impl Update {
