@@ -332,10 +332,17 @@ impl PathAttribute {
             26 => {
                 let aigp_type = stream.read_u8()?;
                 let length = stream.read_u16::<BigEndian>()?;
-                let mut value = vec![0; usize::from(length - 3)];
-                stream.read_exact(&mut value)?;
+                if length < 3 {
+                    Err(Error::new(
+                        ErrorKind::Other,
+                        format!("Bogus AIGP length: {} < 3", length),
+                    ))
+                } else {
+                    let mut value = vec![0; usize::from(length - 3)];
+                    stream.read_exact(&mut value)?;
 
-                Ok(PathAttribute::AIGP((aigp_type, value)))
+                    Ok(PathAttribute::AIGP((aigp_type, value)))
+                }
             }
             32 => {
                 let mut communities: Vec<(u32, u32, u32)> =

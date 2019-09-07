@@ -488,27 +488,33 @@ impl Update {
         stream: &mut Read,
         capabilities: &Capabilities,
     ) -> Result<Update, Error> {
+        if header.length < 23 {
+            return Err(Error::new(ErrorKind::Other, format!("Header had bogus length {} < 23", header.length)));
+        }
         let mut nlri_length: usize = header.length as usize - 23;
 
         // ----------------------------
         // Read withdrawn routes.
         // ----------------------------
-        let length = stream.read_u16::<BigEndian>()? as usize;
-        let mut buffer = vec![0; length];
+        let withdraw_len = stream.read_u16::<BigEndian>()? as usize;
+        if withdraw_len > nlri_length {
+            return Err(Error::new(ErrorKind::Other, format!("Got bogus withdraw length {} < msg len {}", withdraw_len, nlri_length)));
+        }
+        let mut buffer = vec![0; withdraw_len];
         stream.read_exact(&mut buffer)?;
-        nlri_length -= length;
+        nlri_length -= withdraw_len;
 
         let mut withdrawn_routes: Vec<NLRIEncoding> = Vec::with_capacity(0);
         let mut cursor = Cursor::new(buffer);
 
         if capabilities.EXTENDED_PATH_NLRI_SUPPORT {
-            while cursor.position() < length as u64 {
+            while cursor.position() < withdraw_len as u64 {
                 let path_id = cursor.read_u32::<BigEndian>()?;
                 let prefix = Prefix::parse(&mut cursor, AFI::IPV4)?;
                 withdrawn_routes.push(NLRIEncoding::IP_WITH_PATH_ID((prefix, path_id)));
             }
         } else {
-            while cursor.position() < length as u64 {
+            while cursor.position() < withdraw_len as u64 {
                 withdrawn_routes.push(NLRIEncoding::IP(Prefix::parse(&mut cursor, AFI::IPV4)?));
             }
         }
@@ -517,6 +523,9 @@ impl Update {
         // Read path attributes
         // ----------------------------
         let length = stream.read_u16::<BigEndian>()? as usize;
+        if length > nlri_length {
+            return Err(Error::new(ErrorKind::Other, format!("Got bogus attributes length {} < msg len {} - withdraw len {}", length, nlri_length, withdraw_len)));
+        }
         let mut buffer = vec![0; length];
         stream.read_exact(&mut buffer)?;
         nlri_length -= length;
