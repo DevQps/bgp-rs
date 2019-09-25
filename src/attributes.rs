@@ -2,6 +2,7 @@ use crate::Capabilities;
 use crate::NLRIEncoding;
 use crate::{Prefix, AFI};
 use byteorder::{BigEndian, ReadBytesExt};
+use std::fmt::{Display, Formatter};
 use std::io::{Cursor, Error, ErrorKind, Read};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -411,6 +412,16 @@ impl Origin {
             1 => Ok(Origin::EGP),
             2 => Ok(Origin::INCOMPLETE),
             _ => Err(Error::new(ErrorKind::Other, "Unknown origin type found.")),
+        }
+    }
+}
+
+impl Display for Origin {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            Self::IGP => write!(f, "IGP"),
+            Self::EGP => write!(f, "EGP"),
+            Self::INCOMPLETE => write!(f, "Incomplete"),
         }
     }
 }
