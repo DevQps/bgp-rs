@@ -114,7 +114,7 @@ pub enum Message {
     Update(Update),
 
     /// Represent a BGP NOTIFICATION message.
-    Notification,
+    Notification(Notification),
 
     /// Represent a BGP KEEPALIVE message.
     KeepAlive,
@@ -127,19 +127,19 @@ pub enum Message {
 #[derive(Debug)]
 pub struct Open {
     /// Indicates the protocol version number of the message. The current BGP version number is 4.
-    version: u8,
+    pub version: u8,
 
     /// Indicates the Autonomous System number of the sender.
-    peer_asn: u16,
+    pub peer_asn: u16,
 
     /// Indicates the number of seconds the sender proposes for the value of the Hold Timer.
-    hold_timer: u16,
+    pub hold_timer: u16,
 
     /// Indicates the BGP Identifier of the sender.
-    identifier: u32,
+    pub identifier: u32,
 
     /// Optional Parameters
-    parameters: Vec<OpenParameter>,
+    pub parameters: Vec<OpenParameter>,
 }
 
 impl Open {
@@ -204,13 +204,13 @@ impl OpenParameter {
 #[derive(Debug)]
 pub struct Update {
     /// A collection of routes that have been withdrawn.
-    withdrawn_routes: Vec<Prefix>,
+    pub withdrawn_routes: Vec<Prefix>,
 
     /// A collection of attributes associated with the announced routes.
-    attributes: Vec<PathAttribute>,
+    pub attributes: Vec<PathAttribute>,
 
     /// A collection of routes that are announced by the peer.
-    announced_routes: Vec<NLRIEncoding>,
+    pub announced_routes: Vec<NLRIEncoding>,
 }
 
 impl Update {
@@ -343,9 +343,12 @@ pub enum NLRIEncoding {
 /// Represents a generic prefix. For example an IPv4 prefix or IPv6 prefix.
 #[derive(Clone)]
 pub struct Prefix {
-    protocol: AFI,
-    length: u8,
-    prefix: Vec<u8>,
+    /// IP version for prefix (v4|v6)
+    pub protocol: AFI,
+    /// Prefix Mask length in bits
+    pub length: u8,
+    /// Prefix Octets
+    pub prefix: Vec<u8>,
 }
 
 impl From<&Prefix> for IpAddr {
@@ -393,7 +396,39 @@ impl Prefix {
 
 /// Represents a BGP Notification message.
 #[derive(Debug)]
-pub struct Notification {}
+pub struct Notification {
+    /// Major Error Code [RFC4271]
+    pub major_err_code: u8,
+    /// Minor Error Code [RFC4271]
+    pub minor_err_code: u8,
+    /// Notification message
+    pub message: String,
+}
+
+impl Notification {
+    fn parse(stream: &mut Read) -> Result<Notification, Error> {
+        let major_err_code = stream.read_u8()?;
+        let minor_err_code = stream.read_u8()?;
+        let mut message = String::new();
+        stream.read_to_string(&mut message)?;
+
+        Ok(Notification {
+            major_err_code,
+            minor_err_code,
+            message,
+        })
+    }
+}
+
+impl Display for Notification {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        write!(
+            f,
+            "[{}:{}] {}",
+            self.major_err_code, self.minor_err_code, self.message
+        )
+    }
+}
 
 /// Represents a BGP Route Refresh message.
 #[derive(Debug)]
@@ -414,6 +449,7 @@ impl RouteRefresh {
 
 /// Contains the BGP session parameters that distinguish how BGP messages should be parsed.
 #[allow(non_snake_case)]
+#[derive(Clone, Copy, Debug)]
 pub struct Capabilities {
     /// Support for 4-octet AS number capability.
     pub FOUR_OCTET_ASN_SUPPORT: bool,
@@ -484,7 +520,10 @@ where
                 )?);
                 Ok((header, attribute))
             }
-            3 => Ok((header, Message::Notification)),
+            3 => Ok((
+                header,
+                Message::Notification(Notification::parse(&mut self.stream)?),
+            )),
             4 => Ok((header, Message::KeepAlive)),
             5 => Ok((
                 header,
