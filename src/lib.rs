@@ -143,7 +143,7 @@ pub struct Open {
 }
 
 impl Open {
-    fn parse(stream: &mut Read) -> Result<Open, Error> {
+    fn parse(stream: &mut dyn Read) -> Result<Open, Error> {
         let version = stream.read_u8()?;
         let peer_asn = stream.read_u16::<BigEndian>()?;
         let hold_timer = stream.read_u16::<BigEndian>()?;
@@ -182,7 +182,7 @@ pub struct OpenParameter {
 }
 
 impl OpenParameter {
-    fn parse(stream: &mut Read) -> Result<(u8, OpenParameter), Error> {
+    fn parse(stream: &mut dyn Read) -> Result<(u8, OpenParameter), Error> {
         let param_type = stream.read_u8()?;
         let param_length = stream.read_u8()?;
 
@@ -216,7 +216,7 @@ pub struct Update {
 impl Update {
     fn parse(
         header: &Header,
-        stream: &mut Read,
+        stream: &mut dyn Read,
         capabilities: &Capabilities,
     ) -> Result<Update, Error> {
         let mut nlri_length: usize = header.length as usize - 23;
@@ -307,16 +307,21 @@ impl Update {
     /// Moves the MP_REACH and MP_UNREACH NLRI into the NLRI.
     pub fn normalize(&mut self) {
         // Move the MP_REACH_NLRI attribute in the NLRI.
-        if let Some(PathAttribute::MP_REACH_NLRI(routes)) = self.get(Identifier::MP_REACH_NLRI) {
-            self.announced_routes
-                .extend(routes.announced_routes.clone())
+        let identifier = match self.get(Identifier::MP_REACH_NLRI) {
+            Some(PathAttribute::MP_REACH_NLRI(routes)) => Some(routes.announced_routes.clone()),
+            _ => None,
+        };
+        if let Some(routes) = identifier {
+            self.announced_routes.extend(routes)
         }
 
         // Move the MP_REACH_NLRI attribute in the NLRI.
-        if let Some(PathAttribute::MP_UNREACH_NLRI(routes)) = self.get(Identifier::MP_UNREACH_NLRI)
-        {
-            self.withdrawn_routes
-                .extend(routes.withdrawn_routes.clone())
+        let identifier = match self.get(Identifier::MP_UNREACH_NLRI) {
+            Some(PathAttribute::MP_UNREACH_NLRI(routes)) => Some(routes.withdrawn_routes.clone()),
+            _ => None,
+        };
+        if let Some(routes) = identifier {
+            self.withdrawn_routes.extend(routes)
         }
     }
 }
@@ -373,7 +378,7 @@ impl Debug for Prefix {
 }
 
 impl Prefix {
-    fn parse(stream: &mut Read, protocol: AFI) -> Result<Prefix, Error> {
+    fn parse(stream: &mut dyn Read, protocol: AFI) -> Result<Prefix, Error> {
         let length = stream.read_u8()?;
         let mut prefix: Vec<u8> = vec![0; ((length + 7) / 8) as usize];
         stream.read_exact(&mut prefix)?;
@@ -398,7 +403,7 @@ pub struct RouteRefresh {
 }
 
 impl RouteRefresh {
-    fn parse(stream: &mut Read) -> Result<RouteRefresh, Error> {
+    fn parse(stream: &mut dyn Read) -> Result<RouteRefresh, Error> {
         let afi = AFI::from(stream.read_u16::<BigEndian>()?)?;
         let _ = stream.read_u8()?;
         let safi = stream.read_u8()?;
