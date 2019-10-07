@@ -1,7 +1,10 @@
 use crate::Capabilities;
 use crate::NLRIEncoding;
 use crate::{Prefix, AFI};
+use crate::util;
+
 use byteorder::{BigEndian, ReadBytesExt};
+
 use std::io::{Cursor, Error, ErrorKind, Read};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -36,6 +39,7 @@ pub enum Identifier {
     IPV6_SPECIFIC_EXTENDED_COMMUNITY = 25,
     AIGP = 26,
     PE_DISTINGUISHER_LABELS = 27,
+    ENTROPY_LABEL_CAPABILITY = 28,
     BGP_LS = 29,
     LARGE_COMMUNITY = 32,
     BGPSEC_PATH = 33,
@@ -133,6 +137,9 @@ pub enum PathAttribute {
 
     /// Defined in [RFC6514](http://www.iana.org/go/rfc6514).
     PE_DISTINGUISHER_LABELS,
+
+    /// Defined in [RFC6790](http://www.iana.org/go/rfc6790).
+    ENTROPY_LABEL_CAPABILITY,
 
     /// Defined in [RFC7752](http://www.iana.org/go/rfc7752).  **(deprecated)**
     BGP_LS,
@@ -256,8 +263,15 @@ impl PathAttribute {
                 Ok(PathAttribute::AS4_AGGREGATOR((asn, ip)))
             }
             20 => {
-                stream.read_u16::<BigEndian>()?;
-                let ip = Ipv4Addr::from(stream.read_u32::<BigEndian>()?);
+                let mut buf = vec![0u8; length as usize];
+                stream.read_exact(&mut buf)?;
+
+                let mut cur = Cursor::new(buf);
+                let _ = cur.read_u16::<BigEndian>()?;
+                // I have no idea what this is.. both Junos and IOS-XR send this but it's
+                // not covered in the RFC at all
+                let _ = cur.read_u64::<BigEndian>()?;
+                let ip = Ipv4Addr::from(cur.read_u32::<BigEndian>()?);
 
                 Ok(PathAttribute::CONNECTOR(ip))
             }
@@ -303,6 +317,11 @@ impl PathAttribute {
                 stream.read_exact(&mut value)?;
 
                 Ok(PathAttribute::AIGP((aigp_type, value)))
+            },
+            28 => {
+                stream.read_exact(&mut vec![0u8; length as usize])?;
+
+                Ok(PathAttribute::ENTROPY_LABEL_CAPABILITY)
             }
             32 => {
                 let mut communities: Vec<(u32, u32, u32)> =
@@ -339,10 +358,7 @@ impl PathAttribute {
                 let mut buffer = vec![0; usize::from(length)];
                 stream.read_exact(&mut buffer)?;
 
-                Err(Error::new(
-                    ErrorKind::Other,
-                    format!("Unknown path attribute type found: {}", x),
-                ))
+                Err(Error::new(ErrorKind::Other, format!("Unknown path attribute type found: {}", x)))
             }
         }
     }
@@ -379,6 +395,7 @@ impl PathAttribute {
             }
             PathAttribute::AIGP(_) => Identifier::AIGP,
             PathAttribute::PE_DISTINGUISHER_LABELS => Identifier::PE_DISTINGUISHER_LABELS,
+            PathAttribute::ENTROPY_LABEL_CAPABILITY => Identifier::ENTROPY_LABEL_CAPABILITY,
             PathAttribute::BGP_LS => Identifier::BGP_LS,
             PathAttribute::LARGE_COMMUNITY(_) => Identifier::LARGE_COMMUNITY,
             PathAttribute::BGPSEC_PATH => Identifier::BGPSEC_PATH,
@@ -420,12 +437,8 @@ pub struct ASPath {
 }
 
 impl ASPath {
-    fn parse(stream: &mut Read, length: u16, capabilities: &Capabilities) -> Result<ASPath, Error> {
-        let segments = if capabilities.FOUR_OCTET_ASN_SUPPORT {
-            Segment::parse_u32_segments(stream, length)?
-        } else {
-            Segment::parse_u16_segments(stream, length)?
-        };
+    fn parse(stream: &mut Read, length: u16, _: &Capabilities) -> Result<ASPath, Error> {
+        let segments = Segment::parse_unknown_segments(stream, length)?;
 
         Ok(ASPath { segments })
     }
@@ -468,6 +481,55 @@ pub enum Segment {
 }
 
 impl Segment {
+    fn parse_unknown_segments(stream: &mut Read, length: u16) -> Result<Vec<Segment>, Error> {
+        // Read in everything so we can touch the buffer multiple times in order to
+        // work out what we have
+        let mut buf = vec![0u8; length as usize];
+        stream.read_exact(&mut buf)?;
+        let size = buf.len();
+        let mut cur = Cursor::new(buf);
+
+        'as_len:
+        for i in 1..=2u64 {
+            cur.set_position(0);
+
+            // Now attempt to work out whether the first segment is 2 byte or 4 byte
+            let assumed_as_len = i * 2;
+            let mut segment_len = 0u8;
+            let mut total_segments = 0u64;
+
+            while cur.position() < size as u64 {
+                let segment_type = cur.read_u8()?;
+                segment_len = cur.read_u8()?;
+
+                // If the second segment type isn't valid, pretty sure this isn't 2 byte
+                if (assumed_as_len == 2 && total_segments >= 1)
+                    && (segment_type < 1 || segment_type > 2)
+                {
+                    continue 'as_len;
+                }
+
+                cur.set_position( cur.position() + (u64::from(segment_len) * assumed_as_len) );
+                total_segments += 1;
+            }
+
+            // dbg!(i, assumed_as_len, segment_type, segment_len, total_segments, cur.position(), size);
+
+            if cur.position() == length as u64 {
+                cur.set_position(0);
+
+                match i {
+                    1 => { return Self::parse_u16_segments(&mut cur, length); },
+                    2 => { return Self::parse_u32_segments(&mut cur, length); },
+                    _ => {}
+                };
+            }
+        }
+
+        // panic!("Invalid AS_PATH length detected")
+        Err(Error::new(ErrorKind::Other, "Invalid AS_PATH length detected"))
+    }
+
     fn parse_u16_segments(stream: &mut Read, length: u16) -> Result<Vec<Segment>, Error> {
         let mut segments: Vec<Segment> = Vec::with_capacity(1);
 
@@ -492,10 +554,7 @@ impl Segment {
                 1 => segments.push(Segment::AS_SET(elements)),
                 2 => segments.push(Segment::AS_SEQUENCE(elements)),
                 x => {
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        format!("Unknown AS_PATH segment type found: {}", x),
-                    ));
+                    return Err(Error::new(ErrorKind::Other, format!("Unknown AS_PATH (2 byte) segment type found: {}", x)));
                 }
             }
 
@@ -530,10 +589,7 @@ impl Segment {
                 1 => segments.push(Segment::AS_SET(elements)),
                 2 => segments.push(Segment::AS_SEQUENCE(elements)),
                 x => {
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        format!("Unknown AS_PATH segment type found: {}", x),
-                    ));
+                    return Err(Error::new(ErrorKind::Other, format!("Unknown AS_PATH (4 byte) segment type found: {}", x)));
                 }
             }
 
@@ -586,18 +642,86 @@ impl MPReachNLRI {
         let mut cursor = Cursor::new(buffer);
         let mut announced_routes: Vec<NLRIEncoding> = Vec::with_capacity(4);
 
-        if capabilities.EXTENDED_PATH_NLRI_SUPPORT {
-            while cursor.position() < u64::from(size) {
-                let path_id = stream.read_u32::<BigEndian>()?;
-                let prefix = Prefix::parse(&mut cursor, afi)?;
-                announced_routes.push(NLRIEncoding::IP_WITH_PATH_ID((prefix, path_id)));
+        match afi {
+            AFI::IPV4 | AFI::IPV6 => {
+                while cursor.position() < u64::from(size) {
+                    let path_id = match util::detect_add_path_prefix(&mut cursor, 255)? {
+                        true => Some(cursor.read_u32::<BigEndian>()?),
+                        false => None,
+                    };
+
+                    match safi {
+                        // Labelled nexthop
+                        // TODO Add label parsing and support capabilities.MULTIPLE_LABELS
+                        4 => {
+                            let len_bits = cursor.read_u8()?;
+                            // Protect against malformed messages
+                            if len_bits == 0 {
+                                return Err(Error::new(ErrorKind::Other, "Invalid prefix length 0"));
+                            }
+
+                            let len_bytes = (f32::from(len_bits) / 8.0).ceil() as u8;
+                            // discard label, resv and s-bit for now
+                            cursor.read_exact(&mut [0u8; 3])?;
+                            let remaining = (len_bytes - 3) as usize;
+
+                            let mut pfx_buf = afi.empty_buffer();
+                            cursor.read_exact(&mut pfx_buf[..remaining])?;
+
+                            // len_bits - MPLS info
+                            let pfx_len = len_bits - 24;
+                            let prefix = Prefix::new(afi, pfx_len, pfx_buf);
+
+                            match path_id {
+                                Some(path_id) => announced_routes.push(NLRIEncoding::IP_MPLS_WITH_PATH_ID((prefix, 0u32, path_id))),
+                                None => announced_routes.push(NLRIEncoding::IP_MPLS((prefix, 0u32)))
+                            };
+                        },
+                        128 => {
+                            let len_bits = cursor.read_u8()?;
+                            let len_bytes = (f32::from(len_bits) / 8.0).ceil() as u8;
+                            // discard label, resv and s-bit for now
+                            cursor.read_exact(&mut [0u8; 3])?;
+                            let remaining = (len_bytes - 3) as usize;
+
+                            let rd = cursor.read_u64::<BigEndian>()?;
+                            let mut pfx_buf = afi.empty_buffer();
+                            cursor.read_exact(&mut pfx_buf[..(remaining - 8)])?;
+
+                            // len_bits - MPLS info - Route Distinguisher
+                            let pfx_len = len_bits - 24 - 64;
+                            let prefix = Prefix::new(afi, pfx_len, pfx_buf);
+
+                            announced_routes.push(NLRIEncoding::IP_VPN_MPLS((rd, prefix, 0u32)));
+                        },
+                        // Flowspec
+                        133 | 134 => {
+                            // Advance the cursor to the end.. I don't want to deal with flowspec right now
+                            cursor.read_exact(&mut vec![0u8; size as usize])?;
+                            announced_routes.push(NLRIEncoding::FLOWSPEC);
+                        },
+                        _ => {
+                            match path_id {
+                                Some(path_id) => announced_routes.push(NLRIEncoding::IP_WITH_PATH_ID((Prefix::parse(&mut cursor, afi)?, path_id))),
+                                None => announced_routes.push(NLRIEncoding::IP(Prefix::parse(&mut cursor, afi)?))
+                            };
+                            // announced_routes.push(NLRIEncoding::IP(Prefix::parse(&mut cursor, afi)?));
+                        }
+                    };
+                }
+            },
+            AFI::L2VPN => {
+                let _len = cursor.read_u16::<BigEndian>()?;
+                let rd = cursor.read_u64::<BigEndian>()?;
+                let ve_id = cursor.read_u16::<BigEndian>()?;
+                let label_block_offset = cursor.read_u16::<BigEndian>()?;
+                let label_block_size = cursor.read_u16::<BigEndian>()?;
+                let label_base = cursor.read_u24::<BigEndian>()?;
+
+                announced_routes.push(NLRIEncoding::L2VPN((rd, ve_id, label_block_offset, label_block_size, label_base)));
             }
-        } else {
-            while cursor.position() < u64::from(size) {
-                let prefix = Prefix::parse(&mut cursor, afi)?;
-                announced_routes.push(NLRIEncoding::IP(prefix));
-            }
-        }
+        };
+
 
         Ok(MPReachNLRI {
             afi,
@@ -618,7 +742,7 @@ pub struct MPUnreachNLRI {
     pub safi: u8,
 
     /// The routes being withdrawn.
-    pub withdrawn_routes: Vec<Prefix>,
+    pub withdrawn_routes: Vec<NLRIEncoding>,
 }
 
 impl MPUnreachNLRI {
@@ -635,10 +759,69 @@ impl MPUnreachNLRI {
         let mut buffer = vec![0; usize::from(size)];
         stream.read_exact(&mut buffer)?;
         let mut cursor = Cursor::new(buffer);
-        let mut withdrawn_routes: Vec<Prefix> = Vec::with_capacity(4);
+        let mut withdrawn_routes: Vec<NLRIEncoding> = Vec::with_capacity(4);
 
         while cursor.position() < u64::from(size) {
-            withdrawn_routes.push(Prefix::parse(&mut cursor, afi)?);
+            let path_id = match util::detect_add_path_prefix(&mut cursor, 255)? {
+                true => Some(cursor.read_u32::<BigEndian>()?),
+                false => None,
+            };
+
+            match safi {
+                // Labelled nexthop
+                // TODO Add label parsing and support capabilities.MULTIPLE_LABELS
+                4 => {
+                    let len_bits = cursor.read_u8()?;
+                    // Protect against malformed messages
+                    if len_bits == 0 {
+                        return Err(Error::new(ErrorKind::Other, "Invalid prefix length 0"));
+                    }
+
+                    let len_bytes = (f32::from(len_bits) / 8.0).ceil() as u8;
+                    // discard label, resv and s-bit for now
+                    cursor.read_exact(&mut [0u8; 3])?;
+                    let remaining = (len_bytes - 3) as usize;
+
+                    let mut pfx_buf = afi.empty_buffer();
+                    cursor.read_exact(&mut pfx_buf[..remaining])?;
+
+                    // len_bits - MPLS info
+                    let pfx_len = len_bits - 24;
+                    // withdrawn_routes.push(NLRIEncoding::IP(Prefix::new(afi, pfx_len, pfx_buf)));
+                    match path_id {
+                        Some(path_id) => withdrawn_routes.push(NLRIEncoding::IP_MPLS_WITH_PATH_ID((Prefix::new(afi, pfx_len, pfx_buf), 0, path_id))),
+                        None => withdrawn_routes.push(NLRIEncoding::IP_MPLS((Prefix::new(afi, pfx_len, pfx_buf), 0))),
+                    };
+                },
+                128 => {
+                    let len_bits = cursor.read_u8()?;
+                    let len_bytes = (f32::from(len_bits) / 8.0).ceil() as u8;
+
+                    // Upon reception, the value of the Compatibility field MUST be ignored.
+                    cursor.read_exact(&mut [0u8; 3])?;
+
+                    let remaining = (len_bytes - 3) as usize;
+
+                    let rd = cursor.read_u64::<BigEndian>()?;
+                    let mut pfx_buf = afi.empty_buffer();
+                    cursor.read_exact(&mut pfx_buf[..(remaining - 8)])?;
+
+                    // len_bits - MPLS info - Route Distinguisher
+                    let pfx_len = len_bits - 24 - 64;
+                    // withdrawn_routes.push(NLRIEncoding::IP(Prefix::new(afi, pfx_len, pfx_buf)));
+                    withdrawn_routes.push(NLRIEncoding::IP_VPN_MPLS((rd, Prefix::new(afi, pfx_len, pfx_buf), 0u32)));
+                },
+                // FLOWSPEC
+                133 => { unimplemented!(); }
+                // DEFAULT
+                _ => {
+                    // withdrawn_routes.push(NLRIEncoding::IP(Prefix::parse(&mut cursor, afi)?));
+                    match path_id {
+                        Some(path_id) => withdrawn_routes.push(NLRIEncoding::IP_WITH_PATH_ID((Prefix::parse(&mut cursor, afi)?, path_id))),
+                        None => withdrawn_routes.push(NLRIEncoding::IP(Prefix::parse(&mut cursor, afi)?))
+                    };
+                }
+            };
         }
 
         Ok(MPUnreachNLRI {
