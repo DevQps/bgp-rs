@@ -1,7 +1,7 @@
+use crate::util;
 use crate::Capabilities;
 use crate::NLRIEncoding;
 use crate::{Prefix, AFI};
-use crate::util;
 
 use byteorder::{BigEndian, ReadBytesExt};
 
@@ -171,7 +171,10 @@ impl PathAttribute {
     /// # Safety
     /// This function does not make use of unsafe code.
     ///
-    pub fn parse(stream: &mut Read, capabilities: &Capabilities) -> Result<PathAttribute, Error> {
+    pub fn parse(
+        stream: &mut dyn Read,
+        capabilities: &Capabilities,
+    ) -> Result<PathAttribute, Error> {
         let flags = stream.read_u8()?;
         let code = stream.read_u8()?;
 
@@ -317,7 +320,7 @@ impl PathAttribute {
                 stream.read_exact(&mut value)?;
 
                 Ok(PathAttribute::AIGP((aigp_type, value)))
-            },
+            }
             28 => {
                 stream.read_exact(&mut vec![0u8; length as usize])?;
 
@@ -358,7 +361,10 @@ impl PathAttribute {
                 let mut buffer = vec![0; usize::from(length)];
                 stream.read_exact(&mut buffer)?;
 
-                Err(Error::new(ErrorKind::Other, format!("Unknown path attribute type found: {}", x)))
+                Err(Error::new(
+                    ErrorKind::Other,
+                    format!("Unknown path attribute type found: {}", x),
+                ))
             }
         }
     }
@@ -419,7 +425,7 @@ pub enum Origin {
 }
 
 impl Origin {
-    fn parse(stream: &mut Read) -> Result<Origin, Error> {
+    fn parse(stream: &mut dyn Read) -> Result<Origin, Error> {
         match stream.read_u8()? {
             0 => Ok(Origin::IGP),
             1 => Ok(Origin::EGP),
@@ -437,7 +443,7 @@ pub struct ASPath {
 }
 
 impl ASPath {
-    fn parse(stream: &mut Read, length: u16, _: &Capabilities) -> Result<ASPath, Error> {
+    fn parse(stream: &mut dyn Read, length: u16, _: &Capabilities) -> Result<ASPath, Error> {
         let segments = Segment::parse_unknown_segments(stream, length)?;
 
         Ok(ASPath { segments })
@@ -481,7 +487,7 @@ pub enum Segment {
 }
 
 impl Segment {
-    fn parse_unknown_segments(stream: &mut Read, length: u16) -> Result<Vec<Segment>, Error> {
+    fn parse_unknown_segments(stream: &mut dyn Read, length: u16) -> Result<Vec<Segment>, Error> {
         // Read in everything so we can touch the buffer multiple times in order to
         // work out what we have
         let mut buf = vec![0u8; length as usize];
@@ -489,18 +495,16 @@ impl Segment {
         let size = buf.len();
         let mut cur = Cursor::new(buf);
 
-        'as_len:
-        for i in 1..=2u64 {
+        'as_len: for i in 1..=2u64 {
             cur.set_position(0);
 
             // Now attempt to work out whether the first segment is 2 byte or 4 byte
             let assumed_as_len = i * 2;
-            let mut segment_len = 0u8;
             let mut total_segments = 0u64;
 
             while cur.position() < size as u64 {
                 let segment_type = cur.read_u8()?;
-                segment_len = cur.read_u8()?;
+                let segment_len = cur.read_u8()?;
 
                 // If the second segment type isn't valid, pretty sure this isn't 2 byte
                 if (assumed_as_len == 2 && total_segments >= 1)
@@ -509,28 +513,32 @@ impl Segment {
                     continue 'as_len;
                 }
 
-                cur.set_position( cur.position() + (u64::from(segment_len) * assumed_as_len) );
+                cur.set_position(cur.position() + (u64::from(segment_len) * assumed_as_len));
                 total_segments += 1;
             }
 
-            // dbg!(i, assumed_as_len, segment_type, segment_len, total_segments, cur.position(), size);
-
-            if cur.position() == length as u64 {
+            if cur.position() == u64::from(length) {
                 cur.set_position(0);
 
                 match i {
-                    1 => { return Self::parse_u16_segments(&mut cur, length); },
-                    2 => { return Self::parse_u32_segments(&mut cur, length); },
+                    1 => {
+                        return Self::parse_u16_segments(&mut cur, length);
+                    }
+                    2 => {
+                        return Self::parse_u32_segments(&mut cur, length);
+                    }
                     _ => {}
                 };
             }
         }
 
-        // panic!("Invalid AS_PATH length detected")
-        Err(Error::new(ErrorKind::Other, "Invalid AS_PATH length detected"))
+        Err(Error::new(
+            ErrorKind::Other,
+            "Invalid AS_PATH length detected",
+        ))
     }
 
-    fn parse_u16_segments(stream: &mut Read, length: u16) -> Result<Vec<Segment>, Error> {
+    fn parse_u16_segments(stream: &mut dyn Read, length: u16) -> Result<Vec<Segment>, Error> {
         let mut segments: Vec<Segment> = Vec::with_capacity(1);
 
         // While there are multiple AS_PATH segments, parse the segments.
@@ -547,14 +555,17 @@ impl Segment {
 
             // Parse the ASN as 16-bit ASN.
             for _ in 0..segment_length {
-                elements.push(stream.read_u16::<BigEndian>()? as u32);
+                elements.push(u32::from(stream.read_u16::<BigEndian>()?));
             }
 
             match segment_type {
                 1 => segments.push(Segment::AS_SET(elements)),
                 2 => segments.push(Segment::AS_SEQUENCE(elements)),
                 x => {
-                    return Err(Error::new(ErrorKind::Other, format!("Unknown AS_PATH (2 byte) segment type found: {}", x)));
+                    return Err(Error::new(
+                        ErrorKind::Other,
+                        format!("Unknown AS_PATH (2 byte) segment type found: {}", x),
+                    ));
                 }
             }
 
@@ -564,11 +575,11 @@ impl Segment {
         Ok(segments)
     }
 
-    fn parse_u32_segments(stream: &mut Read, length: u16) -> Result<Vec<Segment>, Error> {
+    fn parse_u32_segments(stream: &mut dyn Read, length: u16) -> Result<Vec<Segment>, Error> {
         let mut segments: Vec<Segment> = Vec::with_capacity(1);
 
         // While there are multiple AS_PATH segments, parse the segments.
-        let mut size: i32 = length as i32;
+        let mut size: i32 = i32::from(length);
 
         while size != 0 {
             // The type of a segment, either AS_SET or AS_SEQUENCE.
@@ -589,11 +600,14 @@ impl Segment {
                 1 => segments.push(Segment::AS_SET(elements)),
                 2 => segments.push(Segment::AS_SEQUENCE(elements)),
                 x => {
-                    return Err(Error::new(ErrorKind::Other, format!("Unknown AS_PATH (4 byte) segment type found: {}", x)));
+                    return Err(Error::new(
+                        ErrorKind::Other,
+                        format!("Unknown AS_PATH (4 byte) segment type found: {}", x),
+                    ));
                 }
             }
 
-            size -= 2 + (u16::from(segment_length) * 4) as i32;
+            size -= 2 + i32::from(u16::from(segment_length) * 4);
         }
 
         Ok(segments)
@@ -618,11 +632,7 @@ pub struct MPReachNLRI {
 
 impl MPReachNLRI {
     // TODO: Give argument that determines the AS size.
-    fn parse(
-        stream: &mut Read,
-        length: u16,
-        capabilities: &Capabilities,
-    ) -> Result<MPReachNLRI, Error> {
+    fn parse(stream: &mut dyn Read, length: u16, _: &Capabilities) -> Result<MPReachNLRI, Error> {
         let afi = AFI::from(stream.read_u16::<BigEndian>()?)?;
         let safi = stream.read_u8()?;
 
@@ -645,9 +655,10 @@ impl MPReachNLRI {
         match afi {
             AFI::IPV4 | AFI::IPV6 => {
                 while cursor.position() < u64::from(size) {
-                    let path_id = match util::detect_add_path_prefix(&mut cursor, 255)? {
-                        true => Some(cursor.read_u32::<BigEndian>()?),
-                        false => None,
+                    let path_id = if util::detect_add_path_prefix(&mut cursor, 255)? {
+                        Some(cursor.read_u32::<BigEndian>()?)
+                    } else {
+                        None
                     };
 
                     match safi {
@@ -657,7 +668,10 @@ impl MPReachNLRI {
                             let len_bits = cursor.read_u8()?;
                             // Protect against malformed messages
                             if len_bits == 0 {
-                                return Err(Error::new(ErrorKind::Other, "Invalid prefix length 0"));
+                                return Err(Error::new(
+                                    ErrorKind::Other,
+                                    "Invalid prefix length 0",
+                                ));
                             }
 
                             let len_bytes = (f32::from(len_bits) / 8.0).ceil() as u8;
@@ -673,10 +687,14 @@ impl MPReachNLRI {
                             let prefix = Prefix::new(afi, pfx_len, pfx_buf);
 
                             match path_id {
-                                Some(path_id) => announced_routes.push(NLRIEncoding::IP_MPLS_WITH_PATH_ID((prefix, 0u32, path_id))),
-                                None => announced_routes.push(NLRIEncoding::IP_MPLS((prefix, 0u32)))
+                                Some(path_id) => announced_routes.push(
+                                    NLRIEncoding::IP_MPLS_WITH_PATH_ID((prefix, 0u32, path_id)),
+                                ),
+                                None => {
+                                    announced_routes.push(NLRIEncoding::IP_MPLS((prefix, 0u32)))
+                                }
                             };
-                        },
+                        }
                         128 => {
                             let len_bits = cursor.read_u8()?;
                             let len_bytes = (f32::from(len_bits) / 8.0).ceil() as u8;
@@ -693,23 +711,29 @@ impl MPReachNLRI {
                             let prefix = Prefix::new(afi, pfx_len, pfx_buf);
 
                             announced_routes.push(NLRIEncoding::IP_VPN_MPLS((rd, prefix, 0u32)));
-                        },
+                        }
                         // Flowspec
                         133 | 134 => {
                             // Advance the cursor to the end.. I don't want to deal with flowspec right now
                             cursor.read_exact(&mut vec![0u8; size as usize])?;
                             announced_routes.push(NLRIEncoding::FLOWSPEC);
-                        },
+                        }
                         _ => {
                             match path_id {
-                                Some(path_id) => announced_routes.push(NLRIEncoding::IP_WITH_PATH_ID((Prefix::parse(&mut cursor, afi)?, path_id))),
-                                None => announced_routes.push(NLRIEncoding::IP(Prefix::parse(&mut cursor, afi)?))
+                                Some(path_id) => {
+                                    announced_routes.push(NLRIEncoding::IP_WITH_PATH_ID((
+                                        Prefix::parse(&mut cursor, afi)?,
+                                        path_id,
+                                    )))
+                                }
+                                None => announced_routes
+                                    .push(NLRIEncoding::IP(Prefix::parse(&mut cursor, afi)?)),
                             };
                             // announced_routes.push(NLRIEncoding::IP(Prefix::parse(&mut cursor, afi)?));
                         }
                     };
                 }
-            },
+            }
             AFI::L2VPN => {
                 let _len = cursor.read_u16::<BigEndian>()?;
                 let rd = cursor.read_u64::<BigEndian>()?;
@@ -718,10 +742,15 @@ impl MPReachNLRI {
                 let label_block_size = cursor.read_u16::<BigEndian>()?;
                 let label_base = cursor.read_u24::<BigEndian>()?;
 
-                announced_routes.push(NLRIEncoding::L2VPN((rd, ve_id, label_block_offset, label_block_size, label_base)));
+                announced_routes.push(NLRIEncoding::L2VPN((
+                    rd,
+                    ve_id,
+                    label_block_offset,
+                    label_block_size,
+                    label_base,
+                )));
             }
         };
-
 
         Ok(MPReachNLRI {
             afi,
@@ -747,7 +776,7 @@ pub struct MPUnreachNLRI {
 
 impl MPUnreachNLRI {
     // TODO: Handle different ASN sizes.
-    fn parse(stream: &mut Read, length: u16) -> Result<MPUnreachNLRI, Error> {
+    fn parse(stream: &mut dyn Read, length: u16) -> Result<MPUnreachNLRI, Error> {
         let afi = AFI::from(stream.read_u16::<BigEndian>()?)?;
         let safi = stream.read_u8()?;
 
@@ -762,9 +791,10 @@ impl MPUnreachNLRI {
         let mut withdrawn_routes: Vec<NLRIEncoding> = Vec::with_capacity(4);
 
         while cursor.position() < u64::from(size) {
-            let path_id = match util::detect_add_path_prefix(&mut cursor, 255)? {
-                true => Some(cursor.read_u32::<BigEndian>()?),
-                false => None,
+            let path_id = if util::detect_add_path_prefix(&mut cursor, 255)? {
+                Some(cursor.read_u32::<BigEndian>()?)
+            } else {
+                None
             };
 
             match safi {
@@ -789,10 +819,15 @@ impl MPUnreachNLRI {
                     let pfx_len = len_bits - 24;
                     // withdrawn_routes.push(NLRIEncoding::IP(Prefix::new(afi, pfx_len, pfx_buf)));
                     match path_id {
-                        Some(path_id) => withdrawn_routes.push(NLRIEncoding::IP_MPLS_WITH_PATH_ID((Prefix::new(afi, pfx_len, pfx_buf), 0, path_id))),
-                        None => withdrawn_routes.push(NLRIEncoding::IP_MPLS((Prefix::new(afi, pfx_len, pfx_buf), 0))),
+                        Some(path_id) => withdrawn_routes.push(NLRIEncoding::IP_MPLS_WITH_PATH_ID(
+                            (Prefix::new(afi, pfx_len, pfx_buf), 0, path_id),
+                        )),
+                        None => withdrawn_routes.push(NLRIEncoding::IP_MPLS((
+                            Prefix::new(afi, pfx_len, pfx_buf),
+                            0,
+                        ))),
                     };
-                },
+                }
                 128 => {
                     let len_bits = cursor.read_u8()?;
                     let len_bytes = (f32::from(len_bits) / 8.0).ceil() as u8;
@@ -809,16 +844,26 @@ impl MPUnreachNLRI {
                     // len_bits - MPLS info - Route Distinguisher
                     let pfx_len = len_bits - 24 - 64;
                     // withdrawn_routes.push(NLRIEncoding::IP(Prefix::new(afi, pfx_len, pfx_buf)));
-                    withdrawn_routes.push(NLRIEncoding::IP_VPN_MPLS((rd, Prefix::new(afi, pfx_len, pfx_buf), 0u32)));
-                },
+                    withdrawn_routes.push(NLRIEncoding::IP_VPN_MPLS((
+                        rd,
+                        Prefix::new(afi, pfx_len, pfx_buf),
+                        0u32,
+                    )));
+                }
                 // FLOWSPEC
-                133 => { unimplemented!(); }
+                133 => {
+                    unimplemented!();
+                }
                 // DEFAULT
                 _ => {
-                    // withdrawn_routes.push(NLRIEncoding::IP(Prefix::parse(&mut cursor, afi)?));
+                    // withdrawn_routes.push(NcaLRIEncoding::IP(Prefix::parse(&mut cursor, afi)?));
                     match path_id {
-                        Some(path_id) => withdrawn_routes.push(NLRIEncoding::IP_WITH_PATH_ID((Prefix::parse(&mut cursor, afi)?, path_id))),
-                        None => withdrawn_routes.push(NLRIEncoding::IP(Prefix::parse(&mut cursor, afi)?))
+                        Some(path_id) => withdrawn_routes.push(NLRIEncoding::IP_WITH_PATH_ID((
+                            Prefix::parse(&mut cursor, afi)?,
+                            path_id,
+                        ))),
+                        None => withdrawn_routes
+                            .push(NLRIEncoding::IP(Prefix::parse(&mut cursor, afi)?)),
                     };
                 }
             };

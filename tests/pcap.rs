@@ -88,7 +88,6 @@ fn parse_u32_with_path_id(packet: &[u8]) -> Result<Message, io::Error> {
     let cursor = Cursor::new(packet);
     let mut reader = bgp_rs::Reader::new(cursor);
     reader.capabilities.FOUR_OCTET_ASN_SUPPORT = true;
-    reader.capabilities.EXTENDED_PATH_NLRI_SUPPORT = true;
 
     // Read and return the message.
     let (_, message) = reader.read()?;

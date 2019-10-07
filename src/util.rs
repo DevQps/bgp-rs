@@ -14,7 +14,7 @@ pub(crate) fn detect_add_path_prefix(cur: &mut Cursor<Vec<u8>>, max_bit_len: u32
     let mut i = cur.position() + 4;
     while i < cursor_end {
         cur.set_position(i);
-        let prefix_len = cur.read_u8()? as u32;
+        let prefix_len = u32::from(cur.read_u8()?);
 
         if prefix_len > max_bit_len {
             cur.set_position(cursor_init);
@@ -32,7 +32,7 @@ pub(crate) fn detect_add_path_prefix(cur: &mut Cursor<Vec<u8>>, max_bit_len: u32
 
         if prefix_len % 8 > 0 {
             // detect bits set after the end of the prefix
-            cur.set_position( i - 1 );
+            cur.set_position(i - 1);
             let v = cur.read_u8()?;
             if v & (0xFF >> (prefix_len % 8)) > 0 {
                 cur.set_position(cursor_init);
@@ -47,9 +47,9 @@ pub(crate) fn detect_add_path_prefix(cur: &mut Cursor<Vec<u8>>, max_bit_len: u32
     let mut j = cur.position();
     while j < cursor_end {
         cur.set_position(j);
-        let prefix_len = cur.read_u8()? as u32;
+        let prefix_len = u32::from(cur.read_u8()?);
 
-        if prefix_len == 0 && (cursor_end - (j+1)) > 0 {
+        if prefix_len == 0 && (cursor_end - (j + 1)) > 0 {
             cur.set_position(cursor_init);
             return Ok(true);
         }
@@ -70,7 +70,7 @@ pub(crate) fn detect_add_path_prefix(cur: &mut Cursor<Vec<u8>>, max_bit_len: u32
 
         if prefix_len % 8 > 0 {
             // detect bits set after the end of the prefix
-            cur.set_position( j - 1 );
+            cur.set_position(j - 1);
             let v = cur.read_u8()?;
             if v & (0xFF >> (prefix_len % 8)) > 0 {
                 cur.set_position(cursor_init);
@@ -80,5 +80,5 @@ pub(crate) fn detect_add_path_prefix(cur: &mut Cursor<Vec<u8>>, max_bit_len: u32
     }
 
     cur.set_position(cursor_init);
-    return Ok(false);
+    Ok(false)
 }

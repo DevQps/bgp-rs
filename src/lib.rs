@@ -78,7 +78,6 @@ pub enum AFI {
     IPV6 = 2,
     /// L2VPN ()
     L2VPN = 25,
-
 }
 
 impl AFI {
@@ -87,9 +86,10 @@ impl AFI {
             1 => Ok(AFI::IPV4),
             2 => Ok(AFI::IPV6),
             25 => Ok(AFI::L2VPN),
-            _ => {
-                return Err(Error::new(ErrorKind::Other, format!("Number {} does not represent a vaid address family", value)));
-            }
+            _ => Err(Error::new(
+                ErrorKind::Other,
+                format!("Number {} does not represent a vaid address family", value),
+            )),
         }
     }
 
@@ -97,7 +97,7 @@ impl AFI {
         match self {
             AFI::IPV4 => vec![0u8; 4],
             AFI::IPV6 => vec![0u8; 16],
-            _ => unimplemented!()
+            _ => unimplemented!(),
         }
     }
 }
@@ -117,7 +117,7 @@ pub struct Header {
 
 impl Header {
     /// parse
-    pub fn parse(stream: &mut Read) -> Result<Header, Error> {
+    pub fn parse(stream: &mut dyn Read) -> Result<Header, Error> {
         let mut marker = [0u8; 16];
         stream.read_exact(&mut marker)?;
 
@@ -127,7 +127,7 @@ impl Header {
         Ok(Header {
             marker,
             length,
-            record_type
+            record_type,
         })
     }
 }
@@ -172,7 +172,7 @@ pub struct Open {
 
 impl Open {
     /// parse
-    pub fn parse(stream: &mut Read) -> Result<Open, Error> {
+    pub fn parse(stream: &mut dyn Read) -> Result<Open, Error> {
         let version = stream.read_u8()?;
         let peer_asn = stream.read_u16::<BigEndian>()?;
         let hold_timer = stream.read_u16::<BigEndian>()?;
@@ -211,7 +211,7 @@ pub struct OpenParameter {
 }
 
 impl OpenParameter {
-    fn parse(stream: &mut Read) -> Result<(u8, OpenParameter), Error> {
+    fn parse(stream: &mut dyn Read) -> Result<(u8, OpenParameter), Error> {
         let param_type = stream.read_u8()?;
         let param_length = stream.read_u8()?;
 
@@ -246,7 +246,7 @@ impl Update {
     /// docs
     pub fn parse(
         header: &Header,
-        stream: &mut Read,
+        stream: &mut dyn Read,
         capabilities: &Capabilities,
     ) -> Result<Update, Error> {
         let mut nlri_length: usize = header.length as usize - 23;
@@ -342,16 +342,21 @@ impl Update {
     /// Moves the MP_REACH and MP_UNREACH NLRI into the NLRI.
     pub fn normalize(&mut self) {
         // Move the MP_REACH_NLRI attribute in the NLRI.
-        if let Some(PathAttribute::MP_REACH_NLRI(routes)) = self.get(Identifier::MP_REACH_NLRI) {
-            self.announced_routes
-                .extend(routes.announced_routes.clone())
+        let identifier = match self.get(Identifier::MP_REACH_NLRI) {
+            Some(PathAttribute::MP_REACH_NLRI(routes)) => Some(routes.announced_routes.clone()),
+            _ => None,
+        };
+        if let Some(routes) = identifier {
+            self.announced_routes.extend(routes)
         }
 
         // Move the MP_REACH_NLRI attribute in the NLRI.
-        if let Some(PathAttribute::MP_UNREACH_NLRI(routes)) = self.get(Identifier::MP_UNREACH_NLRI)
-        {
-            self.withdrawn_routes
-                .extend(routes.withdrawn_routes.clone())
+        let identifier = match self.get(Identifier::MP_UNREACH_NLRI) {
+            Some(PathAttribute::MP_UNREACH_NLRI(routes)) => Some(routes.withdrawn_routes.clone()),
+            _ => None,
+        };
+        if let Some(routes) = identifier {
+            self.withdrawn_routes.extend(routes)
         }
     }
 }
@@ -402,8 +407,8 @@ impl From<&Prefix> for IpAddr {
                 let mut buffer: [u8; 16] = [0; 16];
                 buffer[..prefix.prefix.len()].clone_from_slice(&prefix.prefix[..]);
                 IpAddr::from(buffer)
-            },
-            AFI::L2VPN => unimplemented!()
+            }
+            AFI::L2VPN => unimplemented!(),
         }
     }
 }
@@ -422,10 +427,14 @@ impl Debug for Prefix {
 
 impl Prefix {
     fn new(protocol: AFI, length: u8, prefix: Vec<u8>) -> Self {
-        Self { protocol, length, prefix }
+        Self {
+            protocol,
+            length,
+            prefix,
+        }
     }
 
-    fn parse(stream: &mut Read, protocol: AFI) -> Result<Prefix, Error> {
+    fn parse(stream: &mut dyn Read, protocol: AFI) -> Result<Prefix, Error> {
         let length = stream.read_u8()?;
         let mut prefix: Vec<u8> = vec![0; ((length + 7) / 8) as usize];
         stream.read_exact(&mut prefix)?;
@@ -450,7 +459,7 @@ pub struct RouteRefresh {
 }
 
 impl RouteRefresh {
-    fn parse(stream: &mut Read) -> Result<RouteRefresh, Error> {
+    fn parse(stream: &mut dyn Read) -> Result<RouteRefresh, Error> {
         let afi = AFI::from(stream.read_u16::<BigEndian>()?)?;
         let _ = stream.read_u8()?;
         let safi = stream.read_u8()?;
@@ -485,7 +494,6 @@ pub struct Capabilities {
     pub ENHANCED_ROUTE_REFRESH_SUPPORT: bool,
     /// 71 - Long-Lived Graceful Restart
     pub LONG_LIVED_GRACEFUL_RESTART: bool,
-
 }
 
 impl Capabilities {
@@ -498,13 +506,23 @@ impl Capabilities {
         // And (manually) build an intersection between the two
         let mut negotiated = Capabilities::default();
 
-        negotiated.MP_BGP_SUPPORT = peer_local.MP_BGP_SUPPORT.intersection(&peer_remote.MP_BGP_SUPPORT).copied().collect();
-        negotiated.ROUTE_REFRESH_SUPPORT = peer_local.ROUTE_REFRESH_SUPPORT & peer_remote.ROUTE_REFRESH_SUPPORT;
-        negotiated.OUTBOUND_ROUTE_FILTERING_SUPPORT = peer_local.OUTBOUND_ROUTE_FILTERING_SUPPORT.intersection(&peer_remote.OUTBOUND_ROUTE_FILTERING_SUPPORT).copied().collect();
+        negotiated.MP_BGP_SUPPORT = peer_local
+            .MP_BGP_SUPPORT
+            .intersection(&peer_remote.MP_BGP_SUPPORT)
+            .copied()
+            .collect();
+        negotiated.ROUTE_REFRESH_SUPPORT =
+            peer_local.ROUTE_REFRESH_SUPPORT & peer_remote.ROUTE_REFRESH_SUPPORT;
+        negotiated.OUTBOUND_ROUTE_FILTERING_SUPPORT = peer_local
+            .OUTBOUND_ROUTE_FILTERING_SUPPORT
+            .intersection(&peer_remote.OUTBOUND_ROUTE_FILTERING_SUPPORT)
+            .copied()
+            .collect();
 
         // Attempt at a HashMap intersection. We can be a bit lax here because this isn't a real BGP implementation
         // so we can not care too much about the values for now.
-        negotiated.EXTENDED_NEXT_HOP_ENCODING = peer_local.EXTENDED_NEXT_HOP_ENCODING
+        negotiated.EXTENDED_NEXT_HOP_ENCODING = peer_local
+            .EXTENDED_NEXT_HOP_ENCODING
             .iter()
             // .filter(|((afi, safi), _)| peer_remote.EXTENDED_NEXT_HOP_ENCODING.contains_key(&(*afi, *safi)))
             .map(|((afi, safi), nexthop)| ((*afi, *safi), *nexthop))
@@ -512,23 +530,36 @@ impl Capabilities {
 
         negotiated.BGPSEC_SUPPORT = peer_local.BGPSEC_SUPPORT & peer_remote.BGPSEC_SUPPORT;
 
-        negotiated.MULTIPLE_LABELS_SUPPORT = peer_local.MULTIPLE_LABELS_SUPPORT
+        negotiated.MULTIPLE_LABELS_SUPPORT = peer_local
+            .MULTIPLE_LABELS_SUPPORT
             .iter()
-            .filter(|((afi, safi), _)| peer_remote.MULTIPLE_LABELS_SUPPORT.contains_key(&(*afi, *safi)))
+            .filter(|((afi, safi), _)| {
+                peer_remote
+                    .MULTIPLE_LABELS_SUPPORT
+                    .contains_key(&(*afi, *safi))
+            })
             .map(|((afi, safi), val)| ((*afi, *safi), *val))
             .collect();
 
-        negotiated.GRACEFUL_RESTART_SUPPORT = peer_local.GRACEFUL_RESTART_SUPPORT.intersection(&peer_remote.GRACEFUL_RESTART_SUPPORT).copied().collect();
-        negotiated.FOUR_OCTET_ASN_SUPPORT = peer_local.FOUR_OCTET_ASN_SUPPORT & peer_remote.FOUR_OCTET_ASN_SUPPORT;
+        negotiated.GRACEFUL_RESTART_SUPPORT = peer_local
+            .GRACEFUL_RESTART_SUPPORT
+            .intersection(&peer_remote.GRACEFUL_RESTART_SUPPORT)
+            .copied()
+            .collect();
+        negotiated.FOUR_OCTET_ASN_SUPPORT =
+            peer_local.FOUR_OCTET_ASN_SUPPORT & peer_remote.FOUR_OCTET_ASN_SUPPORT;
 
-        negotiated.ADD_PATH_SUPPORT = peer_local.ADD_PATH_SUPPORT
+        negotiated.ADD_PATH_SUPPORT = peer_local
+            .ADD_PATH_SUPPORT
             .iter()
             .filter(|((afi, safi), _)| peer_remote.ADD_PATH_SUPPORT.contains_key(&(*afi, *safi)))
             .map(|((afi, safi), val)| ((*afi, *safi), *val))
             .collect();
 
-        negotiated.ENHANCED_ROUTE_REFRESH_SUPPORT = peer_local.ENHANCED_ROUTE_REFRESH_SUPPORT & peer_remote.ENHANCED_ROUTE_REFRESH_SUPPORT;
-        negotiated.LONG_LIVED_GRACEFUL_RESTART = peer_local.LONG_LIVED_GRACEFUL_RESTART & peer_remote.LONG_LIVED_GRACEFUL_RESTART;
+        negotiated.ENHANCED_ROUTE_REFRESH_SUPPORT =
+            peer_local.ENHANCED_ROUTE_REFRESH_SUPPORT & peer_remote.ENHANCED_ROUTE_REFRESH_SUPPORT;
+        negotiated.LONG_LIVED_GRACEFUL_RESTART =
+            peer_local.LONG_LIVED_GRACEFUL_RESTART & peer_remote.LONG_LIVED_GRACEFUL_RESTART;
 
         Ok(negotiated)
     }
@@ -546,22 +577,22 @@ impl Capabilities {
 
                 match code {
                     // MP_BGP
-                    1  => {
+                    1 => {
                         let afi = AFI::from(cur.read_u16::<BigEndian>()?)?;
                         let _ = cur.read_u8()?;
                         let safi = cur.read_u8()?;
 
                         capabilities.MP_BGP_SUPPORT.insert((afi, safi));
-                    },
+                    }
                     // ROUTE_REFRESH
-                    2  => {
+                    2 => {
                         // Throw away the details, we treat this as a bool
                         cur.read_exact(&mut vec![0u8; length])?;
 
                         capabilities.ROUTE_REFRESH_SUPPORT = true;
-                    },
+                    }
                     // OUTBOUND_ROUTE_FILTERING
-                    3 | 130  => {
+                    3 | 130 => {
                         let afi = AFI::from(cur.read_u16::<BigEndian>()?)?;
                         let _ = cur.read_u8()?;
                         let safi = cur.read_u8()?;
@@ -569,10 +600,12 @@ impl Capabilities {
                         // Throw away the rest since we don't handle it
                         cur.read_exact(&mut vec![0u8; length - 4])?;
 
-                        capabilities.OUTBOUND_ROUTE_FILTERING_SUPPORT.insert((afi, safi));
-                    },
+                        capabilities
+                            .OUTBOUND_ROUTE_FILTERING_SUPPORT
+                            .insert((afi, safi));
+                    }
                     // EXTENDED_NEXT_HOP_ENCODING
-                    5  => {
+                    5 => {
                         let mut buf = vec![0u8; length];
                         cur.read_exact(&mut buf)?;
 
@@ -583,20 +616,21 @@ impl Capabilities {
                             let safi = inner.read_u16::<BigEndian>()? as u8;
                             let nexthop_afi = AFI::from(inner.read_u16::<BigEndian>()?)?;
 
-                            capabilities.EXTENDED_NEXT_HOP_ENCODING.entry((afi, safi))
+                            capabilities
+                                .EXTENDED_NEXT_HOP_ENCODING
+                                .entry((afi, safi))
                                 .or_insert(nexthop_afi);
                         }
-                    },
+                    }
                     // BGPSEC
-                    7  => {
+                    7 => {
                         // Unimplemented, throw away data
                         cur.read_exact(&mut vec![0u8; length])?;
 
                         capabilities.BGPSEC_SUPPORT = true;
-                    },
+                    }
                     // MULTIPLE_LABELS
-                    8  => {
-
+                    8 => {
                         let mut buf = vec![0u8; length];
                         cur.read_exact(&mut buf)?;
 
@@ -607,17 +641,21 @@ impl Capabilities {
                             let safi = inner.read_u8()?;
                             let count = inner.read_u8()?;
 
-                            capabilities.MULTIPLE_LABELS_SUPPORT.entry((afi, safi))
+                            capabilities
+                                .MULTIPLE_LABELS_SUPPORT
+                                .entry((afi, safi))
                                 .or_insert(count);
                         }
-                    },
+                    }
                     // GRACEFUL_RESTART
                     64 => {
                         // Restart flags = Restart time aren't relevant to a BMP peer
                         cur.read_exact(&mut [0u8; 2])?;
 
                         // If the peer didn't advertise any AFI/SAFI config we can bail here
-                        if length - 2 == 0 { continue; }
+                        if length - 2 == 0 {
+                            continue;
+                        }
 
                         let mut buf = vec![0u8; length - 2];
                         cur.read_exact(&mut buf)?;
@@ -633,14 +671,14 @@ impl Capabilities {
 
                             capabilities.GRACEFUL_RESTART_SUPPORT.insert((afi, safi));
                         }
-                    },
+                    }
                     // FOUR_OCTET ASN_SUPPORT
                     65 => {
                         // Throw away the details, we treat this as a bool
                         cur.read_exact(&mut vec![0u8; length])?;
 
                         capabilities.FOUR_OCTET_ASN_SUPPORT = true;
-                    },
+                    }
                     // ADD_PATH_SUPPORT
                     69 => {
                         let mut buf = vec![0u8; length];
@@ -653,15 +691,17 @@ impl Capabilities {
                             let safi = inner.read_u8()?;
                             let send_recv = inner.read_u8()?;
 
-                            capabilities.ADD_PATH_SUPPORT.entry((afi, safi))
+                            capabilities
+                                .ADD_PATH_SUPPORT
+                                .entry((afi, safi))
                                 .or_insert(send_recv);
                         }
-                    },
+                    }
                     // ENHANCED_ROUTE_REFRESH_SUPPORT (128 = Cisco)
                     70 | 128 => {
                         assert!(length == 0); // just testing, RFC says its true!
                         capabilities.ENHANCED_ROUTE_REFRESH_SUPPORT = true;
-                    },
+                    }
                     // 73 => {
                     //     // FQDN_SUPPORT
                     // },
@@ -671,11 +711,11 @@ impl Capabilities {
                         // be used as it's just an extension to Graceful Restart, no extra NLRI information
                         // exists
                         capabilities.LONG_LIVED_GRACEFUL_RESTART = true;
-                    },
+                    }
                     131 => {
                         cur.read_exact(&mut [0u8; 1])?;
                     }
-                    _  => {
+                    _ => {
                         // Read whatever
                         cur.read_exact(&mut vec![0u8; length])?;
                     }
@@ -743,7 +783,10 @@ where
                 header,
                 Message::RouteRefresh(RouteRefresh::parse(&mut self.stream)?),
             )),
-            _ => Err(Error::new(ErrorKind::Other, "Unknown BGP message type found in BGPHeader")),
+            _ => Err(Error::new(
+                ErrorKind::Other,
+                "Unknown BGP message type found in BGPHeader",
+            )),
         }
     }
 
