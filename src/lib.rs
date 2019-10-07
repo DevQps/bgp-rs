@@ -390,9 +390,12 @@ pub enum NLRIEncoding {
 /// Represents a generic prefix. For example an IPv4 prefix or IPv6 prefix.
 #[derive(Clone)]
 pub struct Prefix {
-    protocol: AFI,
-    length: u8,
-    prefix: Vec<u8>,
+    /// IP version for prefix (v4|v6)
+    pub protocol: AFI,
+    /// Prefix Mask length in bits
+    pub length: u8,
+    /// Prefix Octets
+    pub prefix: Vec<u8>,
 }
 
 impl From<&Prefix> for IpAddr {
