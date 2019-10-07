@@ -142,7 +142,7 @@ pub enum Message {
     Update(Update),
 
     /// Represent a BGP NOTIFICATION message.
-    Notification,
+    Notification(Notification),
 
     /// Represent a BGP KEEPALIVE message.
     KeepAlive,
@@ -452,7 +452,30 @@ impl Prefix {
 
 /// Represents a BGP Notification message.
 #[derive(Clone, Debug)]
-pub struct Notification {}
+pub struct Notification {
+    /// Major Error Code [RFC4271]
+    pub major_err_code: u8,
+    /// Minor Error Code [RFC4271]
+    pub minor_err_code: u8,
+    /// Notification message
+    pub data: Vec<u8>,
+}
+
+impl Notification {
+    fn parse(header: &Header, stream: &mut dyn Read) -> Result<Notification, Error> {
+        let major_err_code = stream.read_u8()?;
+        let minor_err_code = stream.read_u8()?;
+        let remaining_length = header.length as usize - 21;
+        let mut data = vec![0; remaining_length as usize];
+        stream.read_exact(&mut data)?;
+
+        Ok(Notification {
+            major_err_code,
+            minor_err_code,
+            data,
+        })
+    }
+}
 
 /// Represents a BGP Route Refresh message.
 #[derive(Clone, Debug)]
@@ -780,7 +803,11 @@ where
                 )?);
                 Ok((header, attribute))
             }
-            3 => Ok((header, Message::Notification)),
+            3 => {
+                let attribute =
+                    Message::Notification(Notification::parse(&header, &mut self.stream)?);
+                Ok((header, attribute))
+            }
             4 => Ok((header, Message::KeepAlive)),
             5 => Ok((
                 header,

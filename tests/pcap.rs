@@ -15,6 +15,7 @@ fn pcap1() {
     parse_pcap("res/pcap/BGP_MD5.cap");
     parse_pcap("res/pcap/BGP_MP_NLRI.cap");
     parse_pcap("res/pcap/BGP_notification.cap");
+    parse_pcap("res/pcap/BGP_notification_msg.cap");
     parse_pcap("res/pcap/BGP_redist.cap");
     parse_pcap("res/pcap/BGP_soft_reset.cap");
     parse_pcap("res/pcap/EBGP_adjacency.cap");
