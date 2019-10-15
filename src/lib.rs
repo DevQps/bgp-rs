@@ -57,6 +57,10 @@
 pub mod attributes;
 pub use crate::attributes::*;
 
+/// Contains the implementation of Flowspec attributes
+pub mod flowspec;
+pub use crate::flowspec::*;
+
 mod util;
 
 use byteorder::{BigEndian, ReadBytesExt};
@@ -68,7 +72,8 @@ use std::fmt::Formatter;
 use std::io::{Cursor, Error, ErrorKind, Read};
 use std::net::IpAddr;
 
-/// Represents an Address Family Idenfitier. Currently only IPv4 and IPv6 are supported.
+/// Represents an Address Family Idenfitier.
+/// Currently only IPv4, IPv6, and L2VPN are supported.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[repr(u16)]
 pub enum AFI {
@@ -383,8 +388,8 @@ pub enum NLRIEncoding {
     /// Encodings that specify a VPLS endpoint as specified in RFC4761. (RD, VE ID, Label Block Offset, Label Block Size, Label Base)
     L2VPN((u64, u16, u16, u16, u32)),
 
-    /// Flowspec - unimplemented! RFC5575
-    FLOWSPEC,
+    /// Flowspec Traffic Filter Specification - RFC5575
+    FLOWSPEC(Vec<FlowspecFilter>),
 }
 
 /// Represents a generic prefix. For example an IPv4 prefix or IPv6 prefix.

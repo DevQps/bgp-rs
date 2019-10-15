@@ -1,3 +1,4 @@
+use crate::flowspec::FlowspecFilter;
 use crate::util;
 use crate::Capabilities;
 use crate::NLRIEncoding;
@@ -666,16 +667,15 @@ impl MPReachNLRI {
         match afi {
             AFI::IPV4 | AFI::IPV6 => {
                 while cursor.position() < u64::from(size) {
-                    let path_id = if util::detect_add_path_prefix(&mut cursor, 255)? {
-                        Some(cursor.read_u32::<BigEndian>()?)
-                    } else {
-                        None
-                    };
-
                     match safi {
                         // Labelled nexthop
                         // TODO Add label parsing and support capabilities.MULTIPLE_LABELS
                         4 => {
+                            let path_id = if util::detect_add_path_prefix(&mut cursor, 255)? {
+                                Some(cursor.read_u32::<BigEndian>()?)
+                            } else {
+                                None
+                            };
                             let len_bits = cursor.read_u8()?;
                             // Protect against malformed messages
                             if len_bits == 0 {
@@ -725,11 +725,21 @@ impl MPReachNLRI {
                         }
                         // Flowspec
                         133 | 134 => {
-                            // Advance the cursor to the end.. I don't want to deal with flowspec right now
-                            cursor.read_exact(&mut vec![0u8; size as usize])?;
-                            announced_routes.push(NLRIEncoding::FLOWSPEC);
+                            let mut nlri_length = cursor.read_u8()?;
+                            let mut filters: Vec<FlowspecFilter> = vec![];
+                            while nlri_length > 0 {
+                                let cur_position = cursor.position();
+                                filters.push(FlowspecFilter::parse(&mut cursor, afi)?);
+                                nlri_length -= (cursor.position() - cur_position) as u8;
+                            }
+                            announced_routes.push(NLRIEncoding::FLOWSPEC(filters));
                         }
                         _ => {
+                            let path_id = if util::detect_add_path_prefix(&mut cursor, 255)? {
+                                Some(cursor.read_u32::<BigEndian>()?)
+                            } else {
+                                None
+                            };
                             match path_id {
                                 Some(path_id) => {
                                     announced_routes.push(NLRIEncoding::IP_WITH_PATH_ID((
