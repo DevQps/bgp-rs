@@ -33,6 +33,13 @@ bitflags! {
     }
 }
 
+impl NumericOperator {
+    /// Create a new Numeric Operator from a u8
+    pub fn new(bits: u8) -> Self {
+        Self { bits }
+    }
+}
+
 bitflags! {
     /// Operator for Binary values, providing ways to compare values
     pub struct BinaryOperator: u8 {
@@ -48,6 +55,13 @@ bitflags! {
     }
 }
 
+impl BinaryOperator {
+    /// Create a new Binary Operator from a u8
+    pub fn new(bits: u8) -> Self {
+        Self { bits }
+    }
+}
+
 bitflags! {
     /// Operator for Fragment values, providing ways to specify rules
     pub struct FragmentOperator: u8 {
@@ -59,6 +73,13 @@ bitflags! {
         const FF = 0b0000_0100;
         /// Last Fragment
         const LF = 0b0000_1000;
+    }
+}
+
+impl FragmentOperator {
+    /// Create a new Fragment Operator from a u8
+    pub fn new(bits: u8) -> Self {
+        Self { bits }
     }
 }
 

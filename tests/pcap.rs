@@ -1,6 +1,6 @@
+use bgp_rs::flowspec::{FlowspecFilter, NumericOperator};
 use bgp_rs::{
-    Capabilities, FlowspecFilter, Identifier, Message, NLRIEncoding, PathAttribute, Reader, Update,
-    AFI,
+    Capabilities, Identifier, Message, NLRIEncoding, PathAttribute, Reader, Update, AFI, SAFI,
 };
 use etherparse::PacketHeaders;
 use std::io;
@@ -176,29 +176,29 @@ fn test_flowspec_v4() {
                     }
                     match &filters[2] {
                         FlowspecFilter::IpProtocol(protocols) => {
-                            assert_eq!(protocols[0], (1u8, 17u32));
-                            assert_eq!(protocols[1], (129u8, 6u32));
+                            assert_eq!(protocols[0], (NumericOperator::new(1), 17u32));
+                            assert_eq!(protocols[1], (NumericOperator::new(129), 6u32));
                         }
                         _ => panic!("IpProtocol not present"),
                     }
                     match &filters[3] {
                         FlowspecFilter::Port(protocols) => {
-                            assert_eq!(protocols[0], (1u8, 80u32));
-                            assert_eq!(protocols[1], (145u8, 8080u32));
+                            assert_eq!(protocols[0], (NumericOperator::new(1), 80u32));
+                            assert_eq!(protocols[1], (NumericOperator::new(145), 8080u32));
                         }
                         _ => panic!("Port not present"),
                     }
                     match &filters[4] {
                         FlowspecFilter::DestinationPort(protocols) => {
-                            assert_eq!(protocols[0], (18u8, 8080u32));
-                            assert_eq!(protocols[1], (84u8, 8088u32));
-                            assert_eq!(protocols[2], (145u8, 3128u32));
+                            assert_eq!(protocols[0], (NumericOperator::new(18), 8080u32));
+                            assert_eq!(protocols[1], (NumericOperator::new(84), 8088u32));
+                            assert_eq!(protocols[2], (NumericOperator::new(145), 3128u32));
                         }
                         _ => panic!("DestinationPort not present"),
                     }
                     match &filters[5] {
                         FlowspecFilter::SourcePort(protocols) => {
-                            assert_eq!(protocols[0], (146u8, 1024u32));
+                            assert_eq!(protocols[0], (NumericOperator::new(146), 1024u32));
                         }
                         _ => panic!("DestinationPort not present"),
                     }
