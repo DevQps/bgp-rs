@@ -107,6 +107,72 @@ impl AFI {
     }
 }
 
+impl Display for AFI {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        use AFI::*;
+        let s = match self {
+            IPV4 => "IPv4",
+            IPV6 => "IPv6",
+            L2VPN => "L2VPN",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+/// Represents an Subsequent Address Family Identifier. Currently only Unicast and Multicast are
+/// supported.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[repr(u8)]
+pub enum SAFI {
+    /// Unicast Forwarding
+    Unicast = 1,
+    /// Multicast Forwarding
+    Multicast = 2,
+    /// MPLS Labels
+    Mpls = 4,
+    /// MPLS VPN
+    MplsVpn = 128,
+    /// Flowspec Unicast
+    Flowspec = 133,
+    /// Flowspec Unicast
+    FlowspecVPN = 134,
+}
+
+impl SAFI {
+    fn from(value: u8) -> Result<SAFI, Error> {
+        match value {
+            1 => Ok(SAFI::Unicast),
+            2 => Ok(SAFI::Multicast),
+            4 => Ok(SAFI::Mpls),
+            128 => Ok(SAFI::MplsVpn),
+            133 => Ok(SAFI::Flowspec),
+            134 => Ok(SAFI::FlowspecVPN),
+            _ => {
+                let msg = format!(
+                    "Number {} does not represent a valid subsequent address family.",
+                    value
+                );
+                Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
+            }
+        }
+    }
+}
+
+impl Display for SAFI {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        use SAFI::*;
+        let s = match self {
+            Unicast => "Unicast",
+            Multicast => "Multicast",
+            Mpls => "MPLS",
+            MplsVpn => "MPLS VPN",
+            Flowspec => "Flowspec",
+            FlowspecVPN => "Flowspec VPN",
+        };
+        write!(f, "{}", s)
+    }
+}
+
 /// Represents the BGP header accompanying every BGP message.
 #[derive(Clone, Debug)]
 pub struct Header {
@@ -486,14 +552,14 @@ impl Notification {
 #[derive(Clone, Debug)]
 pub struct RouteRefresh {
     afi: AFI,
-    safi: u8,
+    safi: SAFI,
 }
 
 impl RouteRefresh {
     fn parse(stream: &mut dyn Read) -> Result<RouteRefresh, Error> {
         let afi = AFI::from(stream.read_u16::<BigEndian>()?)?;
         let _ = stream.read_u8()?;
-        let safi = stream.read_u8()?;
+        let safi = SAFI::from(stream.read_u8()?)?;
 
         Ok(RouteRefresh { afi, safi })
     }
@@ -504,23 +570,23 @@ impl RouteRefresh {
 #[derive(Clone, Debug, Default)]
 pub struct Capabilities {
     /// 1 - Multiprotocol Extensions for BGP-4
-    pub MP_BGP_SUPPORT: HashSet<(AFI, u8)>,
+    pub MP_BGP_SUPPORT: HashSet<(AFI, SAFI)>,
     /// 2 - Route Refresh Capability for BGP-4
     pub ROUTE_REFRESH_SUPPORT: bool,
     /// 3 - Outbound Route Filtering Capability
-    pub OUTBOUND_ROUTE_FILTERING_SUPPORT: HashSet<(AFI, u8)>,
+    pub OUTBOUND_ROUTE_FILTERING_SUPPORT: HashSet<(AFI, SAFI)>,
     /// 5 - Support for reading NLRI extended with a Path Identifier
-    pub EXTENDED_NEXT_HOP_ENCODING: HashMap<(AFI, u8), AFI>,
+    pub EXTENDED_NEXT_HOP_ENCODING: HashMap<(AFI, SAFI), AFI>,
     /// 7 - BGPsec
     pub BGPSEC_SUPPORT: bool,
     /// 8 - Multiple Labels
-    pub MULTIPLE_LABELS_SUPPORT: HashMap<(AFI, u8), u8>,
+    pub MULTIPLE_LABELS_SUPPORT: HashMap<(AFI, SAFI), u8>,
     /// 64 - Graceful Restart
-    pub GRACEFUL_RESTART_SUPPORT: HashSet<(AFI, u8)>,
+    pub GRACEFUL_RESTART_SUPPORT: HashSet<(AFI, SAFI)>,
     /// 65 - Support for 4-octet AS number capability.
     pub FOUR_OCTET_ASN_SUPPORT: bool,
     /// 69 - ADD_PATH
-    pub ADD_PATH_SUPPORT: HashMap<(AFI, u8), u8>,
+    pub ADD_PATH_SUPPORT: HashMap<(AFI, SAFI), u8>,
     /// 70 - Enhanced Route Refresh
     pub ENHANCED_ROUTE_REFRESH_SUPPORT: bool,
     /// 71 - Long-Lived Graceful Restart
@@ -611,7 +677,7 @@ impl Capabilities {
                     1 => {
                         let afi = AFI::from(cur.read_u16::<BigEndian>()?)?;
                         let _ = cur.read_u8()?;
-                        let safi = cur.read_u8()?;
+                        let safi = SAFI::from(cur.read_u8()?)?;
 
                         capabilities.MP_BGP_SUPPORT.insert((afi, safi));
                     }
@@ -626,7 +692,7 @@ impl Capabilities {
                     3 | 130 => {
                         let afi = AFI::from(cur.read_u16::<BigEndian>()?)?;
                         let _ = cur.read_u8()?;
-                        let safi = cur.read_u8()?;
+                        let safi = SAFI::from(cur.read_u8()?)?;
 
                         // Throw away the rest since we don't handle it
                         cur.read_exact(&mut vec![0u8; length - 4])?;
@@ -644,7 +710,7 @@ impl Capabilities {
                         let mut inner = Cursor::new(buf);
                         while inner.position() < length as u64 {
                             let afi = AFI::from(inner.read_u16::<BigEndian>()?)?;
-                            let safi = inner.read_u16::<BigEndian>()? as u8;
+                            let safi = SAFI::from(inner.read_u16::<BigEndian>()? as u8)?;
                             let nexthop_afi = AFI::from(inner.read_u16::<BigEndian>()?)?;
 
                             capabilities
@@ -669,7 +735,7 @@ impl Capabilities {
                         let mut inner = Cursor::new(buf);
                         while inner.position() < length as u64 {
                             let afi = AFI::from(inner.read_u16::<BigEndian>()?)?;
-                            let safi = inner.read_u8()?;
+                            let safi = SAFI::from(inner.read_u8()?)?;
                             let count = inner.read_u8()?;
 
                             capabilities
@@ -695,7 +761,7 @@ impl Capabilities {
                         let mut inner = Cursor::new(buf);
                         while inner.position() < inner.get_ref().len() as u64 {
                             let afi = AFI::from(inner.read_u16::<BigEndian>()?)?;
-                            let safi = inner.read_u8()?;
+                            let safi = SAFI::from(inner.read_u8()?)?;
 
                             // Also not relevant for a BMP peer
                             let _ = inner.read_u8()?;
@@ -719,7 +785,7 @@ impl Capabilities {
                         let mut inner = Cursor::new(buf);
                         while inner.position() < length as u64 {
                             let afi = AFI::from(inner.read_u16::<BigEndian>()?)?;
-                            let safi = inner.read_u8()?;
+                            let safi = SAFI::from(inner.read_u8()?)?;
                             let send_recv = inner.read_u8()?;
 
                             capabilities

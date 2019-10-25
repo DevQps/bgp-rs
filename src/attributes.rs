@@ -2,7 +2,7 @@ use crate::flowspec::FlowspecFilter;
 use crate::util;
 use crate::Capabilities;
 use crate::NLRIEncoding;
-use crate::{Prefix, AFI};
+use crate::{Prefix, AFI, SAFI};
 
 use byteorder::{BigEndian, ReadBytesExt};
 
@@ -633,7 +633,7 @@ pub struct MPReachNLRI {
     pub afi: AFI,
 
     /// The Subsequent Address Family Identifier of the routes being announced.
-    pub safi: u8,
+    pub safi: SAFI,
 
     /// The next hop of the announced routes.
     pub next_hop: Vec<u8>,
@@ -646,7 +646,7 @@ impl MPReachNLRI {
     // TODO: Give argument that determines the AS size.
     fn parse(stream: &mut dyn Read, length: u16, _: &Capabilities) -> Result<MPReachNLRI, Error> {
         let afi = AFI::from(stream.read_u16::<BigEndian>()?)?;
-        let safi = stream.read_u8()?;
+        let safi = SAFI::from(stream.read_u8()?)?;
 
         let next_hop_length = stream.read_u8()?;
         let mut next_hop = vec![0; usize::from(next_hop_length)];
@@ -670,7 +670,7 @@ impl MPReachNLRI {
                     match safi {
                         // Labelled nexthop
                         // TODO Add label parsing and support capabilities.MULTIPLE_LABELS
-                        4 => {
+                        SAFI::Mpls => {
                             let path_id = if util::detect_add_path_prefix(&mut cursor, 255)? {
                                 Some(cursor.read_u32::<BigEndian>()?)
                             } else {
@@ -706,7 +706,7 @@ impl MPReachNLRI {
                                 }
                             };
                         }
-                        128 => {
+                        SAFI::MplsVpn => {
                             let len_bits = cursor.read_u8()?;
                             let len_bytes = (f32::from(len_bits) / 8.0).ceil() as u8;
                             // discard label, resv and s-bit for now
@@ -724,7 +724,7 @@ impl MPReachNLRI {
                             announced_routes.push(NLRIEncoding::IP_VPN_MPLS((rd, prefix, 0u32)));
                         }
                         // Flowspec
-                        133 | 134 => {
+                        SAFI::Flowspec => {
                             let mut nlri_length = cursor.read_u8()?;
                             let mut filters: Vec<FlowspecFilter> = vec![];
                             while nlri_length > 0 {
@@ -789,7 +789,7 @@ pub struct MPUnreachNLRI {
     pub afi: AFI,
 
     /// The Subsequent Address Family Identifier of the routes being withdrawn.
-    pub safi: u8,
+    pub safi: SAFI,
 
     /// The routes being withdrawn.
     pub withdrawn_routes: Vec<NLRIEncoding>,
@@ -799,7 +799,7 @@ impl MPUnreachNLRI {
     // TODO: Handle different ASN sizes.
     fn parse(stream: &mut dyn Read, length: u16) -> Result<MPUnreachNLRI, Error> {
         let afi = AFI::from(stream.read_u16::<BigEndian>()?)?;
-        let safi = stream.read_u8()?;
+        let safi = SAFI::from(stream.read_u8()?)?;
 
         // ----------------------------
         // Read NLRI
@@ -821,7 +821,7 @@ impl MPUnreachNLRI {
             match safi {
                 // Labelled nexthop
                 // TODO Add label parsing and support capabilities.MULTIPLE_LABELS
-                4 => {
+                SAFI::Mpls => {
                     let len_bits = cursor.read_u8()?;
                     // Protect against malformed messages
                     if len_bits == 0 {
@@ -849,7 +849,7 @@ impl MPUnreachNLRI {
                         ))),
                     };
                 }
-                128 => {
+                SAFI::MplsVpn => {
                     let len_bits = cursor.read_u8()?;
                     let len_bytes = (f32::from(len_bits) / 8.0).ceil() as u8;
 
@@ -872,7 +872,7 @@ impl MPUnreachNLRI {
                     )));
                 }
                 // FLOWSPEC
-                133 => {
+                SAFI::Flowspec | SAFI::FlowspecVPN => {
                     unimplemented!();
                 }
                 // DEFAULT

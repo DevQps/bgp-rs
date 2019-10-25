@@ -44,7 +44,7 @@ fn test_flowspec_v6() {
     match update_announce.get(Identifier::MP_REACH_NLRI) {
         Some(PathAttribute::MP_REACH_NLRI(reach_nlri)) => {
             assert_eq!(reach_nlri.afi, AFI::IPV6);
-            assert_eq!(reach_nlri.safi, 133);
+            assert_eq!(reach_nlri.safi, SAFI::Flowspec);
             assert_eq!(reach_nlri.announced_routes.len(), 1);
             match &reach_nlri.announced_routes[0] {
                 NLRIEncoding::FLOWSPEC(filters) => {
@@ -65,7 +65,7 @@ fn test_flowspec_v6() {
     match update_withdraw.get(Identifier::MP_UNREACH_NLRI) {
         Some(PathAttribute::MP_UNREACH_NLRI(unreach_nlri)) => {
             assert_eq!(unreach_nlri.afi, AFI::IPV6);
-            assert_eq!(unreach_nlri.safi, 133);
+            assert_eq!(unreach_nlri.safi, SAFI::Flowspec);
             assert_eq!(unreach_nlri.withdrawn_routes.len(), 0);
         }
         _ => panic!("MP_UNREACH_NLRI not present"),
@@ -91,7 +91,7 @@ fn test_flowspec_v6_redirect() {
     match update.get(Identifier::MP_REACH_NLRI) {
         Some(PathAttribute::MP_REACH_NLRI(reach_nlri)) => {
             assert_eq!(reach_nlri.afi, AFI::IPV6);
-            assert_eq!(reach_nlri.safi, 133);
+            assert_eq!(reach_nlri.safi, SAFI::Flowspec);
             assert_eq!(reach_nlri.announced_routes.len(), 1);
             match &reach_nlri.announced_routes[0] {
                 NLRIEncoding::FLOWSPEC(filters) => {
@@ -123,7 +123,7 @@ fn test_flowspec_dscp() {
     match update.get(Identifier::MP_REACH_NLRI) {
         Some(PathAttribute::MP_REACH_NLRI(reach_nlri)) => {
             assert_eq!(reach_nlri.afi, AFI::IPV6);
-            assert_eq!(reach_nlri.safi, 133);
+            assert_eq!(reach_nlri.safi, SAFI::Flowspec);
             match &reach_nlri.announced_routes[0] {
                 NLRIEncoding::FLOWSPEC(filters) => {
                     assert_eq!(filters.len(), 1);
@@ -158,7 +158,7 @@ fn test_flowspec_v4() {
     match update.get(Identifier::MP_REACH_NLRI) {
         Some(PathAttribute::MP_REACH_NLRI(reach_nlri)) => {
             assert_eq!(reach_nlri.afi, AFI::IPV4);
-            assert_eq!(reach_nlri.safi, 133);
+            assert_eq!(reach_nlri.safi, SAFI::Flowspec);
             match &reach_nlri.announced_routes[0] {
                 NLRIEncoding::FLOWSPEC(filters) => {
                     assert_eq!(filters.len(), 6);
