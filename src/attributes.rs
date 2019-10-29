@@ -6,6 +6,7 @@ use crate::{Prefix, AFI, SAFI};
 
 use byteorder::{BigEndian, ReadBytesExt};
 
+use std::convert::TryFrom;
 use std::fmt::{Display, Formatter};
 use std::io::{Cursor, Error, ErrorKind, Read};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -645,8 +646,8 @@ pub struct MPReachNLRI {
 impl MPReachNLRI {
     // TODO: Give argument that determines the AS size.
     fn parse(stream: &mut dyn Read, length: u16, _: &Capabilities) -> Result<MPReachNLRI, Error> {
-        let afi = AFI::from(stream.read_u16::<BigEndian>()?)?;
-        let safi = SAFI::from(stream.read_u8()?)?;
+        let afi = AFI::try_from(stream.read_u16::<BigEndian>()?)?;
+        let safi = SAFI::try_from(stream.read_u8()?)?;
 
         let next_hop_length = stream.read_u8()?;
         let mut next_hop = vec![0; usize::from(next_hop_length)];
@@ -798,8 +799,8 @@ pub struct MPUnreachNLRI {
 impl MPUnreachNLRI {
     // TODO: Handle different ASN sizes.
     fn parse(stream: &mut dyn Read, length: u16) -> Result<MPUnreachNLRI, Error> {
-        let afi = AFI::from(stream.read_u16::<BigEndian>()?)?;
-        let safi = SAFI::from(stream.read_u8()?)?;
+        let afi = AFI::try_from(stream.read_u16::<BigEndian>()?)?;
+        let safi = SAFI::try_from(stream.read_u8()?)?;
 
         // ----------------------------
         // Read NLRI

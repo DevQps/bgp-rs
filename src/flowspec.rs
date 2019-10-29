@@ -29,7 +29,7 @@ bitflags! {
         /// AND bit, if set, must be matched in addition to previous value
         const AND = 0b0100_0000;
         /// This is the last {op, value} pair in the list.
-        const EOL = 0b1000_000;
+        const EOL = 0b1000_0000;
     }
 }
 
@@ -51,7 +51,7 @@ bitflags! {
         /// AND bit, if set, must be matched in addition to previous value
         const AND = 0b0100_0000;
         /// This is the last {op, value} pair in the list.
-        const EOL = 0b1000_000;
+        const EOL = 0b1000_0000;
     }
 }
 

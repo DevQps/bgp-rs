@@ -66,6 +66,7 @@ mod util;
 use byteorder::{BigEndian, ReadBytesExt};
 
 use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -86,23 +87,26 @@ pub enum AFI {
 }
 
 impl AFI {
-    fn from(value: u16) -> Result<AFI, Error> {
-        match value {
-            1 => Ok(AFI::IPV4),
-            2 => Ok(AFI::IPV6),
-            25 => Ok(AFI::L2VPN),
-            _ => Err(Error::new(
-                ErrorKind::Other,
-                format!("Number {} does not represent a vaid address family", value),
-            )),
-        }
-    }
-
     fn empty_buffer(&self) -> Vec<u8> {
         match self {
             AFI::IPV4 => vec![0u8; 4],
             AFI::IPV6 => vec![0u8; 16],
             _ => unimplemented!(),
+        }
+    }
+}
+
+impl TryFrom<u16> for AFI {
+    type Error = Error;
+    fn try_from(v: u16) -> Result<Self, Self::Error> {
+        match v {
+            1 => Ok(AFI::IPV4),
+            2 => Ok(AFI::IPV6),
+            25 => Ok(AFI::L2VPN),
+            _ => Err(Error::new(
+                ErrorKind::Other,
+                format!("Not a supported AFI: '{}'", v),
+            )),
         }
     }
 }
@@ -138,22 +142,21 @@ pub enum SAFI {
     FlowspecVPN = 134,
 }
 
-impl SAFI {
-    fn from(value: u8) -> Result<SAFI, Error> {
-        match value {
+impl TryFrom<u8> for SAFI {
+    type Error = Error;
+
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
+        match v {
             1 => Ok(SAFI::Unicast),
             2 => Ok(SAFI::Multicast),
             4 => Ok(SAFI::Mpls),
             128 => Ok(SAFI::MplsVpn),
             133 => Ok(SAFI::Flowspec),
             134 => Ok(SAFI::FlowspecVPN),
-            _ => {
-                let msg = format!(
-                    "Number {} does not represent a valid subsequent address family.",
-                    value
-                );
-                Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
-            }
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Not a supported SAFI: '{}'", v),
+            )),
         }
     }
 }
@@ -557,9 +560,9 @@ pub struct RouteRefresh {
 
 impl RouteRefresh {
     fn parse(stream: &mut dyn Read) -> Result<RouteRefresh, Error> {
-        let afi = AFI::from(stream.read_u16::<BigEndian>()?)?;
+        let afi = AFI::try_from(stream.read_u16::<BigEndian>()?)?;
         let _ = stream.read_u8()?;
-        let safi = SAFI::from(stream.read_u8()?)?;
+        let safi = SAFI::try_from(stream.read_u8()?)?;
 
         Ok(RouteRefresh { afi, safi })
     }
@@ -675,9 +678,9 @@ impl Capabilities {
                 match code {
                     // MP_BGP
                     1 => {
-                        let afi = AFI::from(cur.read_u16::<BigEndian>()?)?;
+                        let afi = AFI::try_from(cur.read_u16::<BigEndian>()?)?;
                         let _ = cur.read_u8()?;
-                        let safi = SAFI::from(cur.read_u8()?)?;
+                        let safi = SAFI::try_from(cur.read_u8()?)?;
 
                         capabilities.MP_BGP_SUPPORT.insert((afi, safi));
                     }
@@ -690,9 +693,9 @@ impl Capabilities {
                     }
                     // OUTBOUND_ROUTE_FILTERING
                     3 | 130 => {
-                        let afi = AFI::from(cur.read_u16::<BigEndian>()?)?;
+                        let afi = AFI::try_from(cur.read_u16::<BigEndian>()?)?;
                         let _ = cur.read_u8()?;
-                        let safi = SAFI::from(cur.read_u8()?)?;
+                        let safi = SAFI::try_from(cur.read_u8()?)?;
 
                         // Throw away the rest since we don't handle it
                         cur.read_exact(&mut vec![0u8; length - 4])?;
@@ -709,9 +712,9 @@ impl Capabilities {
                         // This capability is variable length, so we need another Cursor
                         let mut inner = Cursor::new(buf);
                         while inner.position() < length as u64 {
-                            let afi = AFI::from(inner.read_u16::<BigEndian>()?)?;
-                            let safi = SAFI::from(inner.read_u16::<BigEndian>()? as u8)?;
-                            let nexthop_afi = AFI::from(inner.read_u16::<BigEndian>()?)?;
+                            let afi = AFI::try_from(inner.read_u16::<BigEndian>()?)?;
+                            let safi = SAFI::try_from(inner.read_u16::<BigEndian>()? as u8)?;
+                            let nexthop_afi = AFI::try_from(inner.read_u16::<BigEndian>()?)?;
 
                             capabilities
                                 .EXTENDED_NEXT_HOP_ENCODING
@@ -734,8 +737,8 @@ impl Capabilities {
                         // This capability is variable length, so we need another Cursor
                         let mut inner = Cursor::new(buf);
                         while inner.position() < length as u64 {
-                            let afi = AFI::from(inner.read_u16::<BigEndian>()?)?;
-                            let safi = SAFI::from(inner.read_u8()?)?;
+                            let afi = AFI::try_from(inner.read_u16::<BigEndian>()?)?;
+                            let safi = SAFI::try_from(inner.read_u8()?)?;
                             let count = inner.read_u8()?;
 
                             capabilities
@@ -760,8 +763,8 @@ impl Capabilities {
                         // This capability is variable length, so we need another Cursor
                         let mut inner = Cursor::new(buf);
                         while inner.position() < inner.get_ref().len() as u64 {
-                            let afi = AFI::from(inner.read_u16::<BigEndian>()?)?;
-                            let safi = SAFI::from(inner.read_u8()?)?;
+                            let afi = AFI::try_from(inner.read_u16::<BigEndian>()?)?;
+                            let safi = SAFI::try_from(inner.read_u8()?)?;
 
                             // Also not relevant for a BMP peer
                             let _ = inner.read_u8()?;
@@ -784,8 +787,8 @@ impl Capabilities {
                         // This capability is variable length, so we need another Cursor
                         let mut inner = Cursor::new(buf);
                         while inner.position() < length as u64 {
-                            let afi = AFI::from(inner.read_u16::<BigEndian>()?)?;
-                            let safi = SAFI::from(inner.read_u8()?)?;
+                            let afi = AFI::try_from(inner.read_u16::<BigEndian>()?)?;
+                            let safi = SAFI::try_from(inner.read_u8()?)?;
                             let send_recv = inner.read_u8()?;
 
                             capabilities
