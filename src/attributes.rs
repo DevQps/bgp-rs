@@ -160,6 +160,25 @@ pub enum PathAttribute {
     ATTR_SET((u32, Vec<PathAttribute>)),
 }
 
+struct ReadCountingStream<'a> {
+    stream: &'a mut dyn Read,
+    remaining: usize,
+}
+
+impl<'a> Read for ReadCountingStream<'a> {
+    fn read(&mut self, buff: &mut [u8]) -> Result<usize, Error> {
+        if buff.len() > self.remaining {
+            return Err(Error::new(
+                ErrorKind::Other,
+                "Attribute decode tried to read more than its length",
+            ));
+        }
+        let res = self.stream.read(buff)?;
+        self.remaining -= res;
+        Ok(res)
+    }
+}
+
 impl PathAttribute {
     ///
     /// Reads a Path Attribute from an object that implements Read.
@@ -188,6 +207,30 @@ impl PathAttribute {
             stream.read_u16::<BigEndian>()?
         };
 
+        let mut count_stream = ReadCountingStream {
+            stream: stream,
+            remaining: length as usize,
+        };
+
+        let res =
+            PathAttribute::parse_limited(&mut count_stream, capabilities, flags, code, length);
+
+        // Some routes include bogus attributes, which we attempt to parse, but if they're supposed
+        // to be longer than we parsed, just ignore the remaining bytes.
+        if count_stream.remaining != 0 {
+            let mut dummy_buff = vec![0; usize::from(count_stream.remaining)];
+            stream.read_exact(&mut dummy_buff)?;
+        }
+        res
+    }
+
+    fn parse_limited(
+        stream: &mut dyn Read,
+        capabilities: &Capabilities,
+        _flags: u8,
+        code: u8,
+        length: u16,
+    ) -> Result<PathAttribute, Error> {
         match code {
             1 => Ok(PathAttribute::ORIGIN(Origin::parse(stream)?)),
             2 => Ok(PathAttribute::AS_PATH(ASPath::parse(
@@ -248,7 +291,9 @@ impl PathAttribute {
                 capabilities,
             )?)),
             15 => Ok(PathAttribute::MP_UNREACH_NLRI(MPUnreachNLRI::parse(
-                stream, length,
+                stream,
+                length,
+                capabilities,
             )?)),
             16 => {
                 let mut communities = Vec::with_capacity(usize::from(length / 8));
@@ -319,10 +364,17 @@ impl PathAttribute {
             26 => {
                 let aigp_type = stream.read_u8()?;
                 let length = stream.read_u16::<BigEndian>()?;
-                let mut value = vec![0; usize::from(length - 3)];
-                stream.read_exact(&mut value)?;
+                if length < 3 {
+                    Err(Error::new(
+                        ErrorKind::Other,
+                        format!("Bogus AIGP length: {} < 3", length),
+                    ))
+                } else {
+                    let mut value = vec![0; usize::from(length - 3)];
+                    stream.read_exact(&mut value)?;
 
-                Ok(PathAttribute::AIGP((aigp_type, value)))
+                    Ok(PathAttribute::AIGP((aigp_type, value)))
+                }
             }
             28 => {
                 stream.read_exact(&mut vec![0u8; length as usize])?;
@@ -644,8 +696,11 @@ pub struct MPReachNLRI {
 }
 
 impl MPReachNLRI {
-    // TODO: Give argument that determines the AS size.
-    fn parse(stream: &mut dyn Read, length: u16, _: &Capabilities) -> Result<MPReachNLRI, Error> {
+    fn parse(
+        stream: &mut dyn Read,
+        length: u16,
+        capabilities: &Capabilities,
+    ) -> Result<MPReachNLRI, Error> {
         let afi = AFI::try_from(stream.read_u16::<BigEndian>()?)?;
         let safi = SAFI::try_from(stream.read_u8()?)?;
 
@@ -724,7 +779,6 @@ impl MPReachNLRI {
 
                             announced_routes.push(NLRIEncoding::IP_VPN_MPLS((rd, prefix, 0u32)));
                         }
-                        // Flowspec
                         SAFI::Flowspec => {
                             let mut nlri_length = cursor.read_u8()?;
                             let mut filters: Vec<FlowspecFilter> = vec![];
@@ -736,22 +790,19 @@ impl MPReachNLRI {
                             announced_routes.push(NLRIEncoding::FLOWSPEC(filters));
                         }
                         _ => {
-                            let path_id = if util::detect_add_path_prefix(&mut cursor, 255)? {
-                                Some(cursor.read_u32::<BigEndian>()?)
-                            } else {
-                                None
-                            };
-                            match path_id {
-                                Some(path_id) => {
-                                    announced_routes.push(NLRIEncoding::IP_WITH_PATH_ID((
-                                        Prefix::parse(&mut cursor, afi)?,
-                                        path_id,
-                                    )))
+                            if capabilities.EXTENDED_PATH_NLRI_SUPPORT {
+                                while cursor.position() < u64::from(size) {
+                                    let path_id = cursor.read_u32::<BigEndian>()?;
+                                    let prefix = Prefix::parse(&mut cursor, afi)?;
+                                    announced_routes
+                                        .push(NLRIEncoding::IP_WITH_PATH_ID((prefix, path_id)));
                                 }
-                                None => announced_routes
-                                    .push(NLRIEncoding::IP(Prefix::parse(&mut cursor, afi)?)),
-                            };
-                            // announced_routes.push(NLRIEncoding::IP(Prefix::parse(&mut cursor, afi)?));
+                            } else {
+                                while cursor.position() < u64::from(size) {
+                                    let prefix = Prefix::parse(&mut cursor, afi)?;
+                                    announced_routes.push(NLRIEncoding::IP(prefix));
+                                }
+                            }
                         }
                     };
                 }
@@ -798,7 +849,11 @@ pub struct MPUnreachNLRI {
 
 impl MPUnreachNLRI {
     // TODO: Handle different ASN sizes.
-    fn parse(stream: &mut dyn Read, length: u16) -> Result<MPUnreachNLRI, Error> {
+    fn parse(
+        stream: &mut dyn Read,
+        length: u16,
+        capabilities: &Capabilities,
+    ) -> Result<MPUnreachNLRI, Error> {
         let afi = AFI::try_from(stream.read_u16::<BigEndian>()?)?;
         let safi = SAFI::try_from(stream.read_u8()?)?;
 
@@ -813,16 +868,15 @@ impl MPUnreachNLRI {
         let mut withdrawn_routes: Vec<NLRIEncoding> = Vec::with_capacity(4);
 
         while cursor.position() < u64::from(size) {
-            let path_id = if util::detect_add_path_prefix(&mut cursor, 255)? {
-                Some(cursor.read_u32::<BigEndian>()?)
-            } else {
-                None
-            };
-
             match safi {
                 // Labelled nexthop
                 // TODO Add label parsing and support capabilities.MULTIPLE_LABELS
                 SAFI::Mpls => {
+                    let path_id = if util::detect_add_path_prefix(&mut cursor, 255)? {
+                        Some(cursor.read_u32::<BigEndian>()?)
+                    } else {
+                        None
+                    };
                     let len_bits = cursor.read_u8()?;
                     // Protect against malformed messages
                     if len_bits == 0 {
@@ -839,7 +893,6 @@ impl MPUnreachNLRI {
 
                     // len_bits - MPLS info
                     let pfx_len = len_bits - 24;
-                    // withdrawn_routes.push(NLRIEncoding::IP(Prefix::new(afi, pfx_len, pfx_buf)));
                     match path_id {
                         Some(path_id) => withdrawn_routes.push(NLRIEncoding::IP_MPLS_WITH_PATH_ID(
                             (Prefix::new(afi, pfx_len, pfx_buf), 0, path_id),
@@ -872,21 +925,23 @@ impl MPUnreachNLRI {
                         0u32,
                     )));
                 }
-                // FLOWSPEC
                 SAFI::Flowspec | SAFI::FlowspecVPN => {
                     unimplemented!();
                 }
                 // DEFAULT
                 _ => {
-                    // withdrawn_routes.push(NcaLRIEncoding::IP(Prefix::parse(&mut cursor, afi)?));
-                    match path_id {
-                        Some(path_id) => withdrawn_routes.push(NLRIEncoding::IP_WITH_PATH_ID((
-                            Prefix::parse(&mut cursor, afi)?,
-                            path_id,
-                        ))),
-                        None => withdrawn_routes
-                            .push(NLRIEncoding::IP(Prefix::parse(&mut cursor, afi)?)),
-                    };
+                    if capabilities.EXTENDED_PATH_NLRI_SUPPORT {
+                        while cursor.position() < u64::from(size) {
+                            let path_id = cursor.read_u32::<BigEndian>()?;
+                            let prefix = Prefix::parse(&mut cursor, afi)?;
+                            withdrawn_routes.push(NLRIEncoding::IP_WITH_PATH_ID((prefix, path_id)));
+                        }
+                    } else {
+                        while cursor.position() < u64::from(size) {
+                            let prefix = Prefix::parse(&mut cursor, afi)?;
+                            withdrawn_routes.push(NLRIEncoding::IP(prefix));
+                        }
+                    }
                 }
             };
         }
