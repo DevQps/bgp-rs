@@ -1,6 +1,18 @@
 use byteorder::ReadBytesExt;
 
-use std::io::{Cursor, Result};
+use std::io::{Cursor, Result, Write};
+
+pub(crate) struct SizeCalcWriter(pub usize);
+
+impl Write for SizeCalcWriter {
+    fn write(&mut self, b: &[u8]) -> Result<usize> {
+        self.0 += b.len();
+        Ok(b.len())
+    }
+    fn flush(&mut self) -> Result<()> {
+        Ok(())
+    }
+}
 
 // Attempt to detect whether the prefix has a path ID or not.
 // Modelled heavily on the Wireshark code - https://github.com/wireshark/wireshark/blob/24e43bf542d65f5b802b65355caacfba2c7b00d0/epan/dissectors/packet-bgp.c#L2336
