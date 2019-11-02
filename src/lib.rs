@@ -61,13 +61,16 @@ pub mod update;
 pub use crate::update::*;
 
 mod util;
-use util::SizeCalcWriter;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
 use std::io::{Error, ErrorKind, Read, Write};
+
+// RFC 4271: 4.1
+const BGP_MIN_MESSAGE_SIZE: usize = 19;
+const BGP_MAX_MESSAGE_SIZE: usize = 4096;
 
 /// Represents an Address Family Identifier. Currently only IPv4 and IPv6 are supported.
 /// Currently only IPv4, IPv6, and L2VPN are supported.
@@ -202,10 +205,10 @@ impl Header {
     }
 
     /// Writes self into the stream, including the length and record type.
-    pub fn write(&self, write: &mut dyn Write) -> Result<(), Error> {
-        write.write_all(&self.marker)?;
-        write.write_u16::<BigEndian>(self.length)?;
-        write.write_u8(self.record_type)
+    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+        buf.write_all(&self.marker)?;
+        buf.write_u16::<BigEndian>(self.length)?;
+        buf.write_u8(self.record_type)
     }
 }
 
@@ -228,6 +231,44 @@ pub enum Message {
     RouteRefresh(RouteRefresh),
 }
 
+impl Message {
+    fn encode_noheader(&self, buf: &mut dyn Write) -> Result<(), Error> {
+        match self {
+            Message::Open(open) => open.encode(buf),
+            Message::Update(update) => update.encode(buf),
+            Message::Notification(notification) => notification.encode(buf),
+            Message::KeepAlive => Ok(()),
+            Message::RouteRefresh(_refresh) => unimplemented!(),
+        }
+    }
+
+    /// Writes message into the stream, including the appropriate header.
+    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+        let mut message_buf: Vec<u8> = Vec::with_capacity(BGP_MIN_MESSAGE_SIZE); // Start with minimum size
+        self.encode_noheader(&mut message_buf)?;
+        let message_length = message_buf.len();
+        if (message_length + BGP_MIN_MESSAGE_SIZE) > BGP_MAX_MESSAGE_SIZE {
+            return Err(Error::new(
+                ErrorKind::Other,
+                format!("Cannot encode message of length {}", message_length),
+            ));
+        }
+        let header = Header {
+            marker: [0xff; 16],
+            length: (message_length + BGP_MIN_MESSAGE_SIZE) as u16,
+            record_type: match self {
+                Message::Open(_) => 1,
+                Message::Update(_) => 2,
+                Message::Notification(_) => 3,
+                Message::KeepAlive => 4,
+                Message::RouteRefresh(_) => 5,
+            },
+        };
+        header.encode(buf)?;
+        buf.write_all(&message_buf)
+    }
+}
+
 /// Represents a BGP Notification message.
 #[derive(Clone, Debug)]
 pub struct Notification {
@@ -235,7 +276,7 @@ pub struct Notification {
     pub major_err_code: u8,
     /// Minor Error Code [RFC4271]
     pub minor_err_code: u8,
-    /// Notification message
+    /// Notification data
     pub data: Vec<u8>,
 }
 
@@ -252,6 +293,13 @@ impl Notification {
             minor_err_code,
             data,
         })
+    }
+
+    /// Encode message to bytes
+    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+        buf.write_u8(self.major_err_code)?;
+        buf.write_u8(self.minor_err_code)?;
+        buf.write_all(&self.data)
     }
 }
 
@@ -282,43 +330,6 @@ where
 
     /// Capability parameters that distinguish how BGP messages should be parsed.
     pub capabilities: Capabilities,
-}
-
-impl Message {
-    fn write_noheader(&self, write: &mut dyn Write) -> Result<(), Error> {
-        match self {
-            Message::Open(open) => open.write(write),
-            Message::Update(_update) => unimplemented!(),
-            Message::Notification(_notification) => unimplemented!(),
-            Message::KeepAlive => Ok(()),
-            Message::RouteRefresh(_refresh) => unimplemented!(),
-        }
-    }
-
-    /// Writes self into the stream, including the appropriate header.
-    pub fn write(&self, write: &mut dyn Write) -> Result<(), Error> {
-        let mut len = SizeCalcWriter(0);
-        self.write_noheader(&mut len)?;
-        if len.0 + 16 + 2 + 1 > std::u16::MAX as usize {
-            return Err(Error::new(
-                ErrorKind::Other,
-                format!("Cannot encode message of length {}", len.0),
-            ));
-        }
-        let header = Header {
-            marker: [0xff; 16],
-            length: (len.0 + 16 + 2 + 1) as u16,
-            record_type: match self {
-                Message::Open(_) => 1,
-                Message::Update(_) => 2,
-                Message::Notification(_) => 3,
-                Message::KeepAlive => 4,
-                Message::RouteRefresh(_) => 5,
-            },
-        };
-        header.write(write)?;
-        self.write_noheader(write)
-    }
 }
 
 impl<T> Reader<T>

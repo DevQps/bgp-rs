@@ -11,7 +11,6 @@ use std::io::{Error, ErrorKind, Read, Write};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use crate::util::SizeCalcWriter;
 use crate::*;
 
 /// Represents a BGP Open message.
@@ -66,28 +65,27 @@ impl Open {
     }
 
     /// Encode message to bytes
-    pub fn write(&self, write: &mut dyn Write) -> Result<(), Error> {
-        write.write_u8(self.version)?;
-        write.write_u16::<BigEndian>(self.peer_asn)?;
-        write.write_u16::<BigEndian>(self.hold_timer)?;
-        write.write_u32::<BigEndian>(self.identifier)?;
+    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+        buf.write_u8(self.version)?;
+        buf.write_u16::<BigEndian>(self.peer_asn)?;
+        buf.write_u16::<BigEndian>(self.hold_timer)?;
+        buf.write_u32::<BigEndian>(self.identifier)?;
 
-        let mut len = SizeCalcWriter(0);
+        let mut parameter_buf: Vec<u8> = Vec::with_capacity(4);
         for p in self.parameters.iter() {
-            p.write(&mut len)?;
+            p.encode(&mut parameter_buf)?;
         }
-        if len.0 > std::u8::MAX as usize {
+        if parameter_buf.len() > std::u8::MAX as usize {
             return Err(Error::new(
                 ErrorKind::Other,
-                format!("Cannot encode parameters with length {}", len.0),
+                format!(
+                    "Cannot encode parameters with length {}",
+                    parameter_buf.len()
+                ),
             ));
         }
-        write.write_u8(len.0 as u8)?;
-
-        for p in self.parameters.iter() {
-            p.write(write)?;
-        }
-        Ok(())
+        buf.write_u8(parameter_buf.len() as u8)?;
+        buf.write_all(&parameter_buf)
     }
 }
 
@@ -244,41 +242,41 @@ impl OpenCapability {
         ))
     }
 
-    fn write(&self, write: &mut dyn Write) -> Result<(), Error> {
+    fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
         match self {
             OpenCapability::MultiProtocol((afi, safi)) => {
-                write.write_u8(1)?;
-                write.write_u8(4)?;
-                write.write_u16::<BigEndian>(*afi as u16)?;
-                write.write_u8(0)?;
-                write.write_u8(*safi as u8)
+                buf.write_u8(1)?;
+                buf.write_u8(4)?;
+                buf.write_u16::<BigEndian>(*afi as u16)?;
+                buf.write_u8(0)?;
+                buf.write_u8(*safi as u8)
             }
             OpenCapability::RouteRefresh => {
-                write.write_u8(2)?;
-                write.write_u8(0)
+                buf.write_u8(2)?;
+                buf.write_u8(0)
             }
             OpenCapability::OutboundRouteFiltering(orfs) => {
                 let length = orfs.len();
                 for (i, orf) in orfs.iter().enumerate() {
                     let (afi, safi, orf_type, orf_direction) = orf;
                     if i == 0 {
-                        write.write_u16::<BigEndian>(*afi as u16)?;
-                        write.write_u8(0)?; // Reserved
-                        write.write_u8(*safi as u8)?;
-                        write.write_u8(length as u8)?;
+                        buf.write_u16::<BigEndian>(*afi as u16)?;
+                        buf.write_u8(0)?; // Reserved
+                        buf.write_u8(*safi as u8)?;
+                        buf.write_u8(length as u8)?;
                     }
-                    write.write_u8(*orf_type)?;
-                    write.write_u8(*orf_direction as u8)?;
+                    buf.write_u8(*orf_type)?;
+                    buf.write_u8(*orf_direction as u8)?;
                 }
                 Ok(())
             }
             OpenCapability::FourByteASN(asn) => {
-                write.write_u8(65)?;
-                write.write_u8(4)?;
-                write.write_u32::<BigEndian>(*asn)
+                buf.write_u8(65)?;
+                buf.write_u8(4)?;
+                buf.write_u32::<BigEndian>(*asn)
             }
             OpenCapability::AddPath(add_paths) => {
-                write.write_u8(69)?;
+                buf.write_u8(69)?;
                 if add_paths.len() * 4 > std::u8::MAX as usize {
                     return Err(Error::new(
                         ErrorKind::Other,
@@ -288,11 +286,11 @@ impl OpenCapability {
                         ),
                     ));
                 }
-                write.write_u8(add_paths.len() as u8 * 4)?;
+                buf.write_u8(add_paths.len() as u8 * 4)?;
                 for p in add_paths.iter() {
-                    write.write_u16::<BigEndian>(p.0 as u16)?;
-                    write.write_u8(p.1 as u8)?;
-                    write.write_u8(p.2 as u8)?;
+                    buf.write_u16::<BigEndian>(p.0 as u16)?;
+                    buf.write_u8(p.1 as u8)?;
+                    buf.write_u8(p.2 as u8)?;
                 }
                 Ok(())
             }
@@ -301,9 +299,9 @@ impl OpenCapability {
                 cap_length,
                 value,
             } => {
-                write.write_u8(*cap_code)?;
-                write.write_u8(*cap_length)?;
-                write.write_all(&value)
+                buf.write_u8(*cap_code)?;
+                buf.write_u8(*cap_length)?;
+                buf.write_all(&value)
             }
         }
     }
@@ -366,36 +364,31 @@ impl OpenParameter {
         ))
     }
 
-    fn write(&self, write: &mut dyn Write) -> Result<(), Error> {
+    fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
         match self {
             OpenParameter::Capabilities(caps) => {
-                write.write_u8(2)?;
-
-                let mut len = SizeCalcWriter(0);
+                buf.write_u8(2)?;
+                let mut cap_buf: Vec<u8> = Vec::with_capacity(20);
                 for c in caps.iter() {
-                    c.write(&mut len)?;
+                    c.encode(&mut cap_buf)?;
                 }
-                if len.0 > std::u8::MAX as usize {
+                if cap_buf.len() > std::u8::MAX as usize {
                     return Err(Error::new(
                         ErrorKind::Other,
-                        format!("Cannot encode capabilities with length {}", len.0),
+                        format!("Cannot encode capabilities with length {}", cap_buf.len()),
                     ));
                 }
-                write.write_u8(len.0 as u8)?;
-
-                for c in caps.iter() {
-                    c.write(write)?;
-                }
-                Ok(())
+                buf.write_u8(cap_buf.len() as u8)?;
+                buf.write_all(&cap_buf)
             }
             OpenParameter::Unknown {
                 param_type,
                 param_length,
                 value,
             } => {
-                write.write_u8(*param_type)?;
-                write.write_u8(*param_length)?;
-                write.write_all(&value)
+                buf.write_u8(*param_type)?;
+                buf.write_u8(*param_length)?;
+                buf.write_all(&value)
             }
         }
     }
@@ -438,35 +431,32 @@ impl Capabilities {
         let mut capabilities = Capabilities::default();
 
         for parameter in parameters {
-            match parameter {
-                OpenParameter::Capabilities(caps) => {
-                    for capability in caps {
-                        match capability {
-                            OpenCapability::MultiProtocol(family) => {
-                                capabilities.MP_BGP_SUPPORT.insert(family);
-                            }
-                            OpenCapability::RouteRefresh => {
-                                capabilities.ROUTE_REFRESH_SUPPORT = true;
-                            }
-                            OpenCapability::OutboundRouteFiltering(families) => {
-                                capabilities.OUTBOUND_ROUTE_FILTERING_SUPPORT = families;
-                            }
-                            OpenCapability::FourByteASN(_) => {
-                                capabilities.FOUR_OCTET_ASN_SUPPORT = true;
-                            }
-                            OpenCapability::AddPath(paths) => {
-                                capabilities.EXTENDED_PATH_NLRI_SUPPORT = true;
-                                for path in paths {
-                                    capabilities
-                                        .ADD_PATH_SUPPORT
-                                        .insert((path.0, path.1), path.2);
-                                }
-                            }
-                            _ => (),
+            if let OpenParameter::Capabilities(caps) = parameter {
+                for capability in caps {
+                    match capability {
+                        OpenCapability::MultiProtocol(family) => {
+                            capabilities.MP_BGP_SUPPORT.insert(family);
                         }
+                        OpenCapability::RouteRefresh => {
+                            capabilities.ROUTE_REFRESH_SUPPORT = true;
+                        }
+                        OpenCapability::OutboundRouteFiltering(families) => {
+                            capabilities.OUTBOUND_ROUTE_FILTERING_SUPPORT = families;
+                        }
+                        OpenCapability::FourByteASN(_) => {
+                            capabilities.FOUR_OCTET_ASN_SUPPORT = true;
+                        }
+                        OpenCapability::AddPath(paths) => {
+                            capabilities.EXTENDED_PATH_NLRI_SUPPORT = true;
+                            for path in paths {
+                                capabilities
+                                    .ADD_PATH_SUPPORT
+                                    .insert((path.0, path.1), path.2);
+                            }
+                        }
+                        _ => unimplemented!(),
                     }
                 }
-                _ => (),
             }
         }
 

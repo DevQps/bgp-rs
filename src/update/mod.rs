@@ -1,6 +1,9 @@
 /// Contains the implementation of all BGP path attributes.
 pub mod attributes;
 pub use crate::attributes::*;
+/// Contains the implementation of BGP NLRI.
+pub mod nlri;
+pub use crate::nlri::*;
 /// Contains the implementation of Flowspec attributes
 pub mod flowspec;
 pub use crate::flowspec::*;
@@ -126,6 +129,28 @@ impl Update {
         })
     }
 
+    /// Update message to bytes
+    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+        // TODO: Handle Withdrawn routes
+        buf.write_u16::<BigEndian>(0)?; // self.withdrawn_routes.len() as u16)
+
+        // Path Attributes
+        let mut attribute_buf: Vec<u8> = Vec::with_capacity(self.attributes.len() * 8);
+        for attribute in &self.attributes {
+            attribute.encode(&mut attribute_buf)?;
+        }
+        buf.write_u16::<BigEndian>(attribute_buf.len() as u16)?;
+        buf.write_all(&attribute_buf)?;
+
+        // NLRI
+        let mut nlri_buf: Vec<u8> = Vec::with_capacity(self.announced_routes.len() * 8);
+        for route in &self.announced_routes {
+            route.encode(&mut nlri_buf)?;
+        }
+        buf.write_u16::<BigEndian>(nlri_buf.len() as u16)?;
+        buf.write_all(&nlri_buf)
+    }
+
     /// Retrieves the first PathAttribute that matches the given identifier.
     pub fn get(&self, identifier: Identifier) -> Option<&PathAttribute> {
         for a in &self.attributes {
@@ -198,6 +223,21 @@ pub enum NLRIEncoding {
 
     /// Flowspec Traffic Filter Specification - RFC5575
     FLOWSPEC(Vec<FlowspecFilter>),
+}
+
+impl NLRIEncoding {
+    /// Encode NLRI to bytes
+    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+        match self {
+            Self::IP(prefix) => {
+                let num_octets = (prefix.length + 7) / 8;
+                buf.write_u8(prefix.length)?;
+                let octets = &prefix.prefix[..num_octets as usize];
+                buf.write_all(octets)
+            }
+            _ => unimplemented!(),
+        }
+    }
 }
 
 /// Represents a generic prefix. For example an IPv4 prefix or IPv6 prefix.
