@@ -454,7 +454,8 @@ impl Capabilities {
                                     .insert((path.0, path.1), path.2);
                             }
                         }
-                        _ => unimplemented!(),
+                        // Ignore unimplemented capabilities
+                        _ => (),
                     }
                 }
             }

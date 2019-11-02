@@ -56,6 +56,9 @@
 /// Contains the OPEN Message implementation
 pub mod open;
 pub use crate::open::*;
+/// Contains the NOTIFICATION Message implementation
+pub mod notification;
+pub use crate::notification::*;
 /// Contains the UPDATE Message implementation
 pub mod update;
 pub use crate::update::*;
@@ -266,40 +269,6 @@ impl Message {
         };
         header.encode(buf)?;
         buf.write_all(&message_buf)
-    }
-}
-
-/// Represents a BGP Notification message.
-#[derive(Clone, Debug)]
-pub struct Notification {
-    /// Major Error Code [RFC4271]
-    pub major_err_code: u8,
-    /// Minor Error Code [RFC4271]
-    pub minor_err_code: u8,
-    /// Notification data
-    pub data: Vec<u8>,
-}
-
-impl Notification {
-    fn parse(header: &Header, stream: &mut dyn Read) -> Result<Notification, Error> {
-        let major_err_code = stream.read_u8()?;
-        let minor_err_code = stream.read_u8()?;
-        let remaining_length = header.length as usize - 21;
-        let mut data = vec![0; remaining_length as usize];
-        stream.read_exact(&mut data)?;
-
-        Ok(Notification {
-            major_err_code,
-            minor_err_code,
-            data,
-        })
-    }
-
-    /// Encode message to bytes
-    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
-        buf.write_u8(self.major_err_code)?;
-        buf.write_u8(self.minor_err_code)?;
-        buf.write_all(&self.data)
     }
 }
 
