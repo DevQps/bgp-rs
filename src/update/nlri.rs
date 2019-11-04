@@ -150,6 +150,7 @@ impl MPReachNLRI {
                     label_base,
                 )));
             }
+            AFI::BGPLS => unimplemented!(),
         };
 
         Ok(MPReachNLRI {

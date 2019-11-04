@@ -81,11 +81,13 @@ const BGP_MAX_MESSAGE_SIZE: usize = 4096;
 #[repr(u16)]
 pub enum AFI {
     /// Internet Protocol version 4 (32 bits)
-    IPV4 = 1,
+    IPV4 = 0x01,
     /// Internet Protocol version 6 (128 bits)
-    IPV6 = 2,
-    /// L2VPN ()
-    L2VPN = 25,
+    IPV6 = 0x02,
+    /// L2VPN
+    L2VPN = 0x19,
+    /// BGPLS
+    BGPLS = 0x4004,
 }
 
 impl AFI {
@@ -102,9 +104,10 @@ impl TryFrom<u16> for AFI {
     type Error = Error;
     fn try_from(v: u16) -> Result<Self, Self::Error> {
         match v {
-            1 => Ok(AFI::IPV4),
-            2 => Ok(AFI::IPV6),
-            25 => Ok(AFI::L2VPN),
+            0x01 => Ok(AFI::IPV4),
+            0x02 => Ok(AFI::IPV6),
+            0x19 => Ok(AFI::L2VPN),
+            0x4004 => Ok(AFI::BGPLS),
             _ => Err(Error::new(
                 ErrorKind::Other,
                 format!("Not a supported AFI: '{}'", v),
@@ -120,6 +123,7 @@ impl Display for AFI {
             IPV4 => "IPv4",
             IPV6 => "IPv6",
             L2VPN => "L2VPN",
+            BGPLS => "BGPLS",
         };
         write!(f, "{}", s)
     }
@@ -130,13 +134,25 @@ impl Display for AFI {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[repr(u8)]
 pub enum SAFI {
-    /// Unicast Forwarding
+    /// Unicast Forwarding [RFC4760]
     Unicast = 1,
-    /// Multicast Forwarding
+    /// Multicast Forwarding [RFC4760]
     Multicast = 2,
-    /// MPLS Labels
+    /// MPLS Labels [RFC3107]
     Mpls = 4,
-    /// MPLS VPN
+    /// Multicast VPN
+    MulticastVpn = 5,
+    /// VPLS [draft-ietf-l2vpn-evpn]
+    Vpls = 65,
+    /// EVPN [draft-ietf-l2vpn-evpn]
+    Evpn = 70,
+    /// BGP LS [RFC7752]
+    BgpLs = 71,
+    /// BGP LS VPN [RFC7752]
+    BgpLsVpn = 72,
+    /// RTC [RFC4684]
+    Rtc = 132,
+    /// MPLS VPN [RFC4364]
     MplsVpn = 128,
     /// Flowspec Unicast
     Flowspec = 133,
@@ -152,7 +168,13 @@ impl TryFrom<u8> for SAFI {
             1 => Ok(SAFI::Unicast),
             2 => Ok(SAFI::Multicast),
             4 => Ok(SAFI::Mpls),
+            5 => Ok(SAFI::MulticastVpn),
+            65 => Ok(SAFI::Vpls),
+            70 => Ok(SAFI::Evpn),
+            71 => Ok(SAFI::BgpLs),
+            72 => Ok(SAFI::BgpLsVpn),
             128 => Ok(SAFI::MplsVpn),
+            132 => Ok(SAFI::Rtc),
             133 => Ok(SAFI::Flowspec),
             134 => Ok(SAFI::FlowspecVPN),
             _ => Err(std::io::Error::new(
@@ -170,6 +192,12 @@ impl Display for SAFI {
             Unicast => "Unicast",
             Multicast => "Multicast",
             Mpls => "MPLS",
+            MulticastVpn => "Multicast VPN",
+            Vpls => "VPLS",
+            Evpn => "EVPN",
+            BgpLs => "BGPLS",
+            BgpLsVpn => "BGPLSVPN",
+            Rtc => "RTC",
             MplsVpn => "MPLS VPN",
             Flowspec => "Flowspec",
             FlowspecVPN => "Flowspec VPN",

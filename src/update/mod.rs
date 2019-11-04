@@ -265,6 +265,7 @@ impl From<&Prefix> for IpAddr {
                 IpAddr::from(buffer)
             }
             AFI::L2VPN => unimplemented!(),
+            AFI::BGPLS => unimplemented!(),
         }
     }
 }
@@ -304,6 +305,7 @@ impl Prefix {
                 AFI::IPV4 => 32,
                 AFI::IPV6 => 128,
                 AFI::L2VPN => unimplemented!(),
+                AFI::BGPLS => unimplemented!(),
             }
         {
             return Err(Error::new(
