@@ -502,6 +502,9 @@ impl PathAttribute {
                 buf.write_u8(4)?;
                 buf.write_u32::<BigEndian>(*pref)?;
             }
+            MP_REACH_NLRI(mp_nlri) => {
+                mp_nlri.encode(buf)?;
+            }
             _ => unimplemented!(),
         }
         Ok(())
@@ -595,7 +598,7 @@ impl ASPath {
                 path_bytes.write_u32::<BigEndian>(*asn)?;
             }
         }
-        buf.write_u8(0x40)?;
+        buf.write_u8(0x40)?; // Flags
         buf.write_u8(Identifier::AS_PATH as u8)?;
         buf.write_u8(path_bytes.len() as u8)?;
         buf.write_all(&path_bytes)

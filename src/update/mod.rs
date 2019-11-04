@@ -147,7 +147,6 @@ impl Update {
         for route in &self.announced_routes {
             route.encode(&mut nlri_buf)?;
         }
-        buf.write_u16::<BigEndian>(nlri_buf.len() as u16)?;
         buf.write_all(&nlri_buf)
     }
 
@@ -231,8 +230,8 @@ impl NLRIEncoding {
         match self {
             Self::IP(prefix) => {
                 let num_octets = (prefix.length + 7) / 8;
-                buf.write_u8(prefix.length)?;
                 let octets = &prefix.prefix[..num_octets as usize];
+                buf.write_u8(prefix.length)?;
                 buf.write_all(octets)
             }
             _ => unimplemented!(),
