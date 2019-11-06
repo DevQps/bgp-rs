@@ -84,7 +84,7 @@ impl FragmentOperator {
 }
 
 /// Represents the segment type of an AS_PATH. Can be either AS_SEQUENCE or AS_SET.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum FlowspecFilter {
     /// Defines the destination prefix to match
     // Filter type == 1

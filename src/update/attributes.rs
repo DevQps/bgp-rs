@@ -8,7 +8,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use crate::*;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 #[allow(missing_docs)]
 pub enum Identifier {

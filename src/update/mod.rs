@@ -199,7 +199,7 @@ impl Update {
 }
 
 /// Represents NLRIEncodings present in the NRLI section of an UPDATE message.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 #[allow(non_camel_case_types)]
 pub enum NLRIEncoding {
     /// Encodings that specify only an IP present, either IPv4 or IPv6
@@ -240,7 +240,7 @@ impl NLRIEncoding {
 }
 
 /// Represents a generic prefix. For example an IPv4 prefix or IPv6 prefix.
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct Prefix {
     /// IP version for prefix (v4|v6)
     pub protocol: AFI,
