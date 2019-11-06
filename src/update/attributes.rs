@@ -480,6 +480,16 @@ impl PathAttribute {
             AS_PATH(as_path) => {
                 as_path.encode(buf)?;
             }
+            COMMUNITY(communities) => {
+                let mut value: Vec<u8> = Vec::with_capacity(communities.len() * 4);
+                for comm in communities {
+                    value.write_u32::<BigEndian>(*comm)?;
+                }
+                buf.write_u8(0xc0)?;
+                buf.write_u8(Identifier::COMMUNITY as u8)?;
+                buf.write_u8(value.len() as u8)?;
+                buf.write_all(&value)?;
+            }
             NEXT_HOP(next_hop) => {
                 let value: Vec<u8> = match next_hop {
                     IpAddr::V4(addr) => addr.octets().to_vec(),
@@ -507,6 +517,16 @@ impl PathAttribute {
             }
             MP_UNREACH_NLRI(mp_unreach) => {
                 mp_unreach.encode(buf)?;
+            }
+            EXTENDED_COMMUNITIES(ext_communities) => {
+                let mut value: Vec<u8> = Vec::with_capacity(ext_communities.len() * 4);
+                for comm in ext_communities {
+                    value.write_u64::<BigEndian>(*comm)?;
+                }
+                buf.write_u8(0xc0)?;
+                buf.write_u8(Identifier::EXTENDED_COMMUNITIES as u8)?;
+                buf.write_u8(value.len() as u8)?;
+                buf.write_all(&value)?;
             }
             _ => {
                 unimplemented!();
