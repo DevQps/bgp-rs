@@ -502,10 +502,15 @@ impl PathAttribute {
                 buf.write_u8(4)?;
                 buf.write_u32::<BigEndian>(*pref)?;
             }
-            MP_REACH_NLRI(mp_nlri) => {
-                mp_nlri.encode(buf)?;
+            MP_REACH_NLRI(mp_reach) => {
+                mp_reach.encode(buf)?;
             }
-            _ => unimplemented!(),
+            MP_UNREACH_NLRI(mp_unreach) => {
+                mp_unreach.encode(buf)?;
+            }
+            _ => {
+                unimplemented!();
+            }
         }
         Ok(())
     }
