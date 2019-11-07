@@ -234,6 +234,14 @@ impl NLRIEncoding {
                 buf.write_u8(prefix.length)?;
                 buf.write_all(octets)
             }
+            Self::FLOWSPEC(filters) => {
+                let mut bytes: Vec<u8> = Vec::with_capacity(16);
+                for filter in filters {
+                    filter.encode(&mut bytes)?;
+                }
+                buf.write_u8(bytes.len() as u8)?;
+                buf.write_all(&bytes)
+            }
             _ => unimplemented!(),
         }
     }

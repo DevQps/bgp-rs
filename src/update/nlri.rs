@@ -116,6 +116,9 @@ impl MPReachNLRI {
                             }
                             announced_routes.push(NLRIEncoding::FLOWSPEC(filters));
                         }
+                        SAFI::FlowspecVPN => {
+                            unimplemented!();
+                        }
                         _ => {
                             if capabilities.EXTENDED_PATH_NLRI_SUPPORT {
                                 while cursor.position() < u64::from(size) {
@@ -264,14 +267,23 @@ impl MPUnreachNLRI {
 
                     // len_bits - MPLS info - Route Distinguisher
                     let pfx_len = len_bits - 24 - 64;
-                    // withdrawn_routes.push(NLRIEncoding::IP(Prefix::new(afi, pfx_len, pfx_buf)));
                     withdrawn_routes.push(NLRIEncoding::IP_VPN_MPLS((
                         rd,
                         Prefix::new(afi, pfx_len, pfx_buf),
                         0u32,
                     )));
                 }
-                SAFI::Flowspec | SAFI::FlowspecVPN => {
+                SAFI::Flowspec => {
+                    let mut nlri_length = cursor.read_u8()?;
+                    let mut filters: Vec<FlowspecFilter> = vec![];
+                    while nlri_length > 0 {
+                        let cur_position = cursor.position();
+                        filters.push(FlowspecFilter::parse(&mut cursor, afi)?);
+                        nlri_length -= (cursor.position() - cur_position) as u8;
+                    }
+                    withdrawn_routes.push(NLRIEncoding::FLOWSPEC(filters));
+                }
+                SAFI::FlowspecVPN => {
                     unimplemented!();
                 }
                 // DEFAULT

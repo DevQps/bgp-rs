@@ -1,9 +1,9 @@
 use crate::{Prefix, AFI};
 
 use bitflags::bitflags;
-use byteorder::{BigEndian, ReadBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use std::io::{Error, ErrorKind, Read};
+use std::io::{Error, ErrorKind, Read, Write};
 
 /// Check if the EOL bit is set,
 /// signaling the last filter in the list
@@ -26,6 +26,12 @@ bitflags! {
         const GT  = 0b0000_0010;
         /// Lesser-than comparison between data and value
         const LT  = 0b0000_0100;
+        /// Value length of 2 bytes
+        const V2  = 0b0001_0000;
+        /// Value length of 4 bytes
+        const V4  = 0b0010_0000;
+        /// Value length of 8 bytes
+        const V8  = 0b0011_0000;
         /// AND bit, if set, must be matched in addition to previous value
         const AND = 0b0100_0000;
         /// This is the last {op, value} pair in the list.
@@ -38,6 +44,33 @@ impl NumericOperator {
     pub fn new(bits: u8) -> Self {
         Self { bits }
     }
+
+    /// Set End-of-list bit
+    pub fn set_eol(&mut self) {
+        *self |= Self::EOL;
+    }
+    /// Clear End-of-list bit
+    pub fn unset_eol(&mut self) {
+        // byte &= 0b1111_0111; // Unset a bit
+        *self &= !Self::EOL;
+    }
+
+    /// Set the operator value byte length. Must be one of: [1, 2, 4, 8]
+    pub fn set_length(&mut self, length: u8) {
+        match length {
+            1 => *self &= !Self::V8, // Clear the 2 bits
+            2 => {
+                *self &= !Self::V8;
+                *self |= Self::V2;
+            }
+            4 => {
+                *self &= !Self::V8;
+                *self |= Self::V4;
+            }
+            8 => *self |= Self::V8,
+            _ => unimplemented!(),
+        }
+    }
 }
 
 bitflags! {
@@ -48,6 +81,8 @@ bitflags! {
         const MATCH  = 0b0000_0001;
         /// NOT bit. If set, logical negation of operation
         const NOT  = 0b0000_0010;
+        /// Value length of 2 bytes
+        const V2  = 0b0001_0000;
         /// AND bit, if set, must be matched in addition to previous value
         const AND = 0b0100_0000;
         /// This is the last {op, value} pair in the list.
@@ -59,6 +94,28 @@ impl BinaryOperator {
     /// Create a new Binary Operator from a u8
     pub fn new(bits: u8) -> Self {
         Self { bits }
+    }
+
+    /// Set End-of-list bit
+    pub fn set_eol(&mut self) {
+        *self |= Self::EOL;
+    }
+    /// Clear End-of-list bit
+    pub fn unset_eol(&mut self) {
+        // byte &= 0b1111_0111; // Unset a bit
+        *self &= !Self::EOL;
+    }
+
+    /// Set the operator value byte length. Must be one of: [1, 2]
+    pub fn set_length(&mut self, length: u8) {
+        match length {
+            1 => *self &= !Self::V2,
+            2 => {
+                *self &= !Self::V2;
+                *self |= Self::V2;
+            }
+            _ => unimplemented!(),
+        }
     }
 }
 
@@ -73,6 +130,8 @@ bitflags! {
         const FF = 0b0000_0100;
         /// Last Fragment
         const LF = 0b0000_1000;
+        /// This is the last {op, value} pair in the list.
+        const EOL = 0b1000_0000;
     }
 }
 
@@ -80,6 +139,16 @@ impl FragmentOperator {
     /// Create a new Fragment Operator from a u8
     pub fn new(bits: u8) -> Self {
         Self { bits }
+    }
+
+    /// Set End-of-list bit
+    pub fn set_eol(&mut self) {
+        *self |= Self::EOL;
+    }
+    /// Clear End-of-list bit
+    pub fn unset_eol(&mut self) {
+        // byte &= 0b1111_0111; // Unset a bit
+        *self &= !Self::EOL;
     }
 }
 
@@ -117,11 +186,11 @@ pub enum FlowspecFilter {
     // Filter type == 8
     IcmpCode(Vec<(NumericOperator, u8)>),
     /// Defines a list of {operation, value} pairs used to match the
-    /// code field of an ICMP packet.
+    /// Flags in a TCP header
     // Filter type == 9
-    TcpFlags(Vec<(BinaryOperator, u32)>),
+    TcpFlags(Vec<(BinaryOperator, u16)>),
     /// Defines a list of {operation, value} pairs used to match the
-    /// code field of an ICMP packet.
+    /// packet length.
     // Filter type == 10
     PacketLength(Vec<(NumericOperator, u32)>),
     /// Defines a list of {operation, value} pairs used to match the
@@ -129,12 +198,29 @@ pub enum FlowspecFilter {
     // Filter type == 11
     DSCP(Vec<(NumericOperator, u8)>),
     /// Defines a list of {operation, value} pairs used to match the
-    /// 6-bit DSCP field [RFC2474].
+    /// packet fragment status.
     // Filter type == 12
     Fragment(Vec<(FragmentOperator, u8)>),
 }
 
 impl FlowspecFilter {
+    /// The Flowspec Filter Type Code [RFC: 5575]
+    pub fn code(&self) -> u8 {
+        match self {
+            Self::DestinationPrefix(_) => 1,
+            Self::SourcePrefix(_) => 2,
+            Self::IpProtocol(_) => 3,
+            Self::Port(_) => 4,
+            Self::DestinationPort(_) => 5,
+            Self::SourcePort(_) => 6,
+            Self::IcmpType(_) => 7,
+            Self::IcmpCode(_) => 8,
+            Self::TcpFlags(_) => 9,
+            Self::PacketLength(_) => 10,
+            Self::DSCP(_) => 11,
+            Self::Fragment(_) => 12,
+        }
+    }
     pub(crate) fn parse(stream: &mut dyn Read, afi: AFI) -> Result<Self, Error> {
         let filter_type = stream.read_u8()?;
         match filter_type {
@@ -184,7 +270,7 @@ impl FlowspecFilter {
                     9 => {
                         let values: Vec<(_, _)> = values
                             .into_iter()
-                            .map(|(op, v)| (BinaryOperator { bits: op }, v))
+                            .map(|(op, v)| (BinaryOperator { bits: op }, v as u16))
                             .collect();
                         Ok(FlowspecFilter::TcpFlags(values))
                     }
@@ -224,6 +310,94 @@ impl FlowspecFilter {
             )),
         }
     }
+
+    /// Encode Flowspec NLRI to bytes
+    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+        use FlowspecFilter::*;
+        buf.write_u8(self.code())?;
+        match self {
+            DestinationPrefix(prefix) | SourcePrefix(prefix) => {
+                buf.write_u8(prefix.length)?;
+                buf.write_u8(0)?; // Offset
+                buf.write_all(&prefix.prefix)?;
+            }
+            IpProtocol(values)
+            | DestinationPort(values)
+            | SourcePort(values)
+            | Port(values)
+            | PacketLength(values) => {
+                for (i, (mut oper, value)) in values.iter().enumerate() {
+                    if i + 1 == values.len() {
+                        oper.set_eol();
+                    } else {
+                        oper.unset_eol();
+                    }
+                    match value {
+                        0..=255 => {
+                            oper.set_length(1);
+                            buf.write_u8(oper.bits())?;
+                            buf.write_u8(*value as u8)?;
+                        }
+                        256..=65535 => {
+                            oper.set_length(2);
+                            buf.write_u8(oper.bits())?;
+                            buf.write_u16::<BigEndian>(*value as u16)?;
+                        }
+                        65536..=std::u32::MAX => {
+                            oper.set_length(4);
+                            buf.write_u8(oper.bits())?;
+                            buf.write_u32::<BigEndian>(*value)?;
+                        }
+                    }
+                }
+            }
+            IcmpCode(values) | IcmpType(values) | DSCP(values) => {
+                for (i, (mut oper, value)) in values.iter().enumerate() {
+                    if i + 1 == values.len() {
+                        oper.set_eol();
+                    } else {
+                        oper.unset_eol();
+                    }
+                    oper.set_length(1);
+                    buf.write_u8(oper.bits())?;
+                    buf.write_u8(*value as u8)?;
+                }
+            }
+            TcpFlags(values) => {
+                for (i, (mut oper, value)) in values.iter().enumerate() {
+                    if i + 1 == values.len() {
+                        oper.set_eol();
+                    } else {
+                        oper.unset_eol();
+                    }
+                    match value {
+                        0..=255 => {
+                            oper.set_length(1);
+                            buf.write_u8(oper.bits())?;
+                            buf.write_u8(*value as u8)?;
+                        }
+                        256..=std::u16::MAX => {
+                            oper.set_length(2);
+                            buf.write_u8(oper.bits())?;
+                            buf.write_u16::<BigEndian>(*value)?;
+                        }
+                    }
+                }
+            }
+            Fragment(values) => {
+                for (i, (mut oper, value)) in values.iter().enumerate() {
+                    if i + 1 == values.len() {
+                        oper.set_eol();
+                    } else {
+                        oper.unset_eol();
+                    }
+                    buf.write_u8(oper.bits())?;
+                    buf.write_u8(*value as u8)?;
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Convert raw values (u8, T) operators into Numeric Operator + value pairs
@@ -235,13 +409,33 @@ fn into_num_op<T>(values: Vec<(u8, T)>) -> Vec<(NumericOperator, T)> {
 }
 
 #[test]
-fn test_flowspec_operator() {
-    assert!(is_end_of_list(0x81));
-    assert!(!is_end_of_list(0x06));
-
+fn test_flowspec_operator_length() {
     assert_eq!(find_length(0b0000_0000), 1);
     assert_eq!(find_length(0b0000_1111), 1);
     assert_eq!(find_length(0b0001_0000), 2);
     assert_eq!(find_length(0b0010_0000), 4);
     assert_eq!(find_length(0b0011_0000), 8);
+}
+
+#[test]
+fn test_flowspec_numeric_operator_bits() {
+    let mut eol = NumericOperator::new(0x81);
+    assert!(is_end_of_list(eol.bits()));
+    eol.unset_eol();
+    assert!(!is_end_of_list(eol.bits()));
+
+    let mut not_eol = NumericOperator::new(0x06);
+    assert!(!is_end_of_list(not_eol.bits()));
+    not_eol.set_eol();
+    assert!(is_end_of_list(not_eol.bits()));
+
+    let mut oper = NumericOperator::EQ;
+    oper.set_length(1);
+    assert_eq!(find_length(oper.bits()), 1);
+    oper.set_length(2);
+    assert_eq!(find_length(oper.bits()), 2);
+    oper.set_length(4);
+    assert_eq!(find_length(oper.bits()), 4);
+    oper.set_length(8);
+    assert_eq!(find_length(oper.bits()), 8);
 }
