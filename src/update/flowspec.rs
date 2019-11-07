@@ -3,6 +3,7 @@ use crate::{Prefix, AFI};
 use bitflags::bitflags;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
+use std::fmt;
 use std::io::{Error, ErrorKind, Read, Write};
 
 /// Check if the EOL bit is set,
@@ -73,6 +74,23 @@ impl NumericOperator {
     }
 }
 
+impl fmt::Display for NumericOperator {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.contains(NumericOperator::AND) {
+            write!(f, "&& ")?;
+        }
+        if self.contains(NumericOperator::LT) {
+            write!(f, "<")?;
+        } else if self.contains(NumericOperator::GT) {
+            write!(f, ">")?;
+        }
+        if self.contains(NumericOperator::EQ) {
+            write!(f, "=")?;
+        }
+        Ok(())
+    }
+}
+
 bitflags! {
     /// Operator for Binary values, providing ways to compare values
     pub struct BinaryOperator: u8 {
@@ -119,6 +137,20 @@ impl BinaryOperator {
     }
 }
 
+impl fmt::Display for BinaryOperator {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.contains(BinaryOperator::AND) {
+            write!(f, "&& ")?;
+        }
+        if self.contains(BinaryOperator::MATCH) {
+            write!(f, "=")?;
+        } else if self.contains(BinaryOperator::NOT) {
+            write!(f, "!")?;
+        }
+        Ok(())
+    }
+}
+
 bitflags! {
     /// Operator for Fragment values, providing ways to specify rules
     pub struct FragmentOperator: u8 {
@@ -149,6 +181,21 @@ impl FragmentOperator {
     pub fn unset_eol(&mut self) {
         // byte &= 0b1111_0111; // Unset a bit
         *self &= !Self::EOL;
+    }
+}
+
+impl fmt::Display for FragmentOperator {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.contains(FragmentOperator::DF) {
+            write!(f, "Do-Not-Frag ")?;
+        } else if self.contains(FragmentOperator::IF) {
+            write!(f, "Is Frag")?;
+        } else if self.contains(FragmentOperator::FF) {
+            write!(f, "First ")?;
+        } else if self.contains(FragmentOperator::LF) {
+            write!(f, "Last ")?;
+        }
+        Ok(())
     }
 }
 
@@ -400,6 +447,43 @@ impl FlowspecFilter {
     }
 }
 
+impl fmt::Display for FlowspecFilter {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use FlowspecFilter::*;
+        match self {
+            DestinationPrefix(prefix) => write!(f, "Dst {}", prefix),
+            SourcePrefix(prefix) => write!(f, "Src {}", prefix),
+            IpProtocol(values) => value_display(f, "Protocol", values),
+            DestinationPort(values) => value_display(f, "DstPort", values),
+            SourcePort(values) => value_display(f, "SrcPort", values),
+            Port(values) => value_display(f, "Port", values),
+            PacketLength(values) => value_display(f, "Packet Length", values),
+            IcmpCode(values) => value_display(f, "Icmp Code", values),
+            IcmpType(values) => value_display(f, "Icmp type", values),
+            DSCP(values) => value_display(f, "DSCP", values),
+            TcpFlags(values) => value_display(f, "TCP Flags", values),
+            Fragment(values) => value_display(f, "Fragment", values),
+        }
+    }
+}
+
+fn value_display<O, T>(f: &mut fmt::Formatter, name: &str, value: &Vec<(O, T)>) -> fmt::Result
+where
+    O: fmt::Display,
+    T: fmt::Display,
+{
+    write!(
+        f,
+        "{} {}",
+        name,
+        value
+            .iter()
+            .map(|(op, v)| format!("{}{}", op.to_string(), v))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
 /// Convert raw values (u8, T) operators into Numeric Operator + value pairs
 fn into_num_op<T>(values: Vec<(u8, T)>) -> Vec<(NumericOperator, T)> {
     values
@@ -415,6 +499,11 @@ fn test_flowspec_operator_length() {
     assert_eq!(find_length(0b0001_0000), 2);
     assert_eq!(find_length(0b0010_0000), 4);
     assert_eq!(find_length(0b0011_0000), 8);
+}
+
+#[test]
+fn test_flowspec_operator_sign() {
+    assert_eq!((NumericOperator::LT | NumericOperator::EQ).sign(), "<=");
 }
 
 #[test]
