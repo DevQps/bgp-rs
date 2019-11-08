@@ -229,10 +229,8 @@ impl NLRIEncoding {
     pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
         match self {
             Self::IP(prefix) => {
-                let num_octets = (prefix.length + 7) / 8;
-                let octets = &prefix.prefix[..num_octets as usize];
                 buf.write_u8(prefix.length)?;
-                buf.write_all(octets)
+                buf.write_all(&prefix.masked_octets())
             }
             Self::FLOWSPEC(filters) => {
                 let mut bytes: Vec<u8> = Vec::with_capacity(16);
@@ -304,6 +302,16 @@ impl Prefix {
         }
     }
 
+    fn octet_length(&self) -> usize {
+        (self.length as usize + 7) / 8
+    }
+
+    /// Get a slice of the prefix octets covered by the prefix mask
+    /// Useful for encoding the prefix in NLRI
+    pub fn masked_octets(&self) -> &[u8] {
+        &self.prefix[..self.octet_length()]
+    }
+
     fn parse(stream: &mut dyn Read, protocol: AFI) -> Result<Prefix, Error> {
         let length = stream.read_u8()?;
 
@@ -330,4 +338,14 @@ impl Prefix {
             prefix,
         })
     }
+}
+
+#[test]
+fn test_prefix_masked_octets() {
+    let prefix = Prefix::new(AFI::IPV4, 32, vec![1, 1, 1, 1]);
+    assert_eq!(prefix.masked_octets(), &[1, 1, 1, 1]);
+    let prefix = Prefix::new(AFI::IPV4, 16, vec![1, 1, 1, 1]);
+    assert_eq!(prefix.masked_octets(), &[1, 1]);
+    let prefix = Prefix::new(AFI::IPV4, 18, vec![1, 1, 1, 1]);
+    assert_eq!(prefix.masked_octets(), &[1, 1, 1]);
 }

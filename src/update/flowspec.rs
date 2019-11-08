@@ -366,7 +366,7 @@ impl FlowspecFilter {
             DestinationPrefix(prefix) | SourcePrefix(prefix) => {
                 buf.write_u8(prefix.length)?;
                 buf.write_u8(0)?; // Offset
-                buf.write_all(&prefix.prefix)?;
+                buf.write_all(&prefix.masked_octets())?;
             }
             IpProtocol(values)
             | DestinationPort(values)
@@ -503,7 +503,10 @@ fn test_flowspec_operator_length() {
 
 #[test]
 fn test_flowspec_operator_sign() {
-    assert_eq!((NumericOperator::LT | NumericOperator::EQ).sign(), "<=");
+    assert_eq!(
+        (NumericOperator::LT | NumericOperator::EQ).to_string(),
+        "<="
+    );
 }
 
 #[test]
