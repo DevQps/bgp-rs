@@ -228,11 +228,11 @@ impl NLRIEncoding {
     /// Encode NLRI to bytes
     pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
         match self {
-            Self::IP(prefix) => {
+            NLRIEncoding::IP(prefix) => {
                 buf.write_u8(prefix.length)?;
                 buf.write_all(&prefix.masked_octets())
             }
-            Self::FLOWSPEC(filters) => {
+            NLRIEncoding::FLOWSPEC(filters) => {
                 let mut bytes: Vec<u8> = Vec::with_capacity(16);
                 for filter in filters {
                     filter.encode(&mut bytes)?;

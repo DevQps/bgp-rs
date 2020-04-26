@@ -253,19 +253,20 @@ pub enum FlowspecFilter {
 impl FlowspecFilter {
     /// The Flowspec Filter Type Code [RFC: 5575]
     pub fn code(&self) -> u8 {
+        use FlowspecFilter::*;
         match self {
-            Self::DestinationPrefix(_) => 1,
-            Self::SourcePrefix(_) => 2,
-            Self::IpProtocol(_) => 3,
-            Self::Port(_) => 4,
-            Self::DestinationPort(_) => 5,
-            Self::SourcePort(_) => 6,
-            Self::IcmpType(_) => 7,
-            Self::IcmpCode(_) => 8,
-            Self::TcpFlags(_) => 9,
-            Self::PacketLength(_) => 10,
-            Self::DSCP(_) => 11,
-            Self::Fragment(_) => 12,
+            DestinationPrefix(_) => 1,
+            SourcePrefix(_) => 2,
+            IpProtocol(_) => 3,
+            Port(_) => 4,
+            DestinationPort(_) => 5,
+            SourcePort(_) => 6,
+            IcmpType(_) => 7,
+            IcmpCode(_) => 8,
+            TcpFlags(_) => 9,
+            PacketLength(_) => 10,
+            DSCP(_) => 11,
+            Fragment(_) => 12,
         }
     }
     pub(crate) fn parse(stream: &mut dyn Read, afi: AFI) -> Result<Self, Error> {

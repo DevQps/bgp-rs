@@ -563,9 +563,9 @@ impl Origin {
 impl Display for Origin {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         match self {
-            Self::IGP => write!(f, "IGP"),
-            Self::EGP => write!(f, "EGP"),
-            Self::INCOMPLETE => write!(f, "Incomplete"),
+            Origin::IGP => write!(f, "IGP"),
+            Origin::EGP => write!(f, "EGP"),
+            Origin::INCOMPLETE => write!(f, "Incomplete"),
         }
     }
 }
@@ -677,10 +677,10 @@ impl Segment {
 
                 match i {
                     1 => {
-                        return Self::parse_u16_segments(&mut cur, length);
+                        return Segment::parse_u16_segments(&mut cur, length);
                     }
                     2 => {
-                        return Self::parse_u32_segments(&mut cur, length);
+                        return Segment::parse_u32_segments(&mut cur, length);
                     }
                     _ => {}
                 };

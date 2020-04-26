@@ -5,6 +5,7 @@ sudo: required
 rust:
   - stable
   - beta
+  - 1.34.0
 
 before_script:
   - rustup component add clippy

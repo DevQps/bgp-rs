@@ -6,7 +6,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
-use std::fmt::Debug;
 use std::io::{Error, ErrorKind, Read, Write};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
@@ -462,64 +461,5 @@ impl Capabilities {
         }
 
         capabilities
-    }
-
-    /// Work out the common set of capabilities on a peering session
-    pub fn common(&self, other: &Capabilities) -> Result<Self, Error> {
-        // And (manually) build an intersection between the two
-        let mut negotiated = Capabilities::default();
-
-        negotiated.MP_BGP_SUPPORT = self
-            .MP_BGP_SUPPORT
-            .intersection(&other.MP_BGP_SUPPORT)
-            .copied()
-            .collect();
-        negotiated.ROUTE_REFRESH_SUPPORT = self.ROUTE_REFRESH_SUPPORT & other.ROUTE_REFRESH_SUPPORT;
-        negotiated.OUTBOUND_ROUTE_FILTERING_SUPPORT = self
-            .OUTBOUND_ROUTE_FILTERING_SUPPORT
-            .intersection(&other.OUTBOUND_ROUTE_FILTERING_SUPPORT)
-            .copied()
-            .collect();
-
-        // Attempt at a HashMap intersection. We can be a bit lax here because this isn't a real BGP implementation
-        // so we can not care too much about the values for now.
-        negotiated.EXTENDED_NEXT_HOP_ENCODING = self
-            .EXTENDED_NEXT_HOP_ENCODING
-            .iter()
-            // .filter(|((afi, safi), _)| other.EXTENDED_NEXT_HOP_ENCODING.contains_key(&(*afi, *safi)))
-            .map(|((afi, safi), nexthop)| ((*afi, *safi), *nexthop))
-            .collect();
-
-        negotiated.BGPSEC_SUPPORT = self.BGPSEC_SUPPORT & other.BGPSEC_SUPPORT;
-
-        negotiated.MULTIPLE_LABELS_SUPPORT = self
-            .MULTIPLE_LABELS_SUPPORT
-            .iter()
-            .filter(|((afi, safi), _)| other.MULTIPLE_LABELS_SUPPORT.contains_key(&(*afi, *safi)))
-            .map(|((afi, safi), val)| ((*afi, *safi), *val))
-            .collect();
-
-        negotiated.GRACEFUL_RESTART_SUPPORT = self
-            .GRACEFUL_RESTART_SUPPORT
-            .intersection(&other.GRACEFUL_RESTART_SUPPORT)
-            .copied()
-            .collect();
-        negotiated.FOUR_OCTET_ASN_SUPPORT =
-            self.FOUR_OCTET_ASN_SUPPORT & other.FOUR_OCTET_ASN_SUPPORT;
-
-        negotiated.ADD_PATH_SUPPORT = self
-            .ADD_PATH_SUPPORT
-            .iter()
-            .filter(|((afi, safi), _)| other.ADD_PATH_SUPPORT.contains_key(&(*afi, *safi)))
-            .map(|((afi, safi), val)| ((*afi, *safi), *val))
-            .collect();
-        negotiated.EXTENDED_PATH_NLRI_SUPPORT = !negotiated.ADD_PATH_SUPPORT.is_empty();
-
-        negotiated.ENHANCED_ROUTE_REFRESH_SUPPORT =
-            self.ENHANCED_ROUTE_REFRESH_SUPPORT & other.ENHANCED_ROUTE_REFRESH_SUPPORT;
-        negotiated.LONG_LIVED_GRACEFUL_RESTART =
-            self.LONG_LIVED_GRACEFUL_RESTART & other.LONG_LIVED_GRACEFUL_RESTART;
-
-        Ok(negotiated)
     }
 }
