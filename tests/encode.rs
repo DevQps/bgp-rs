@@ -7,12 +7,13 @@ fn test_encode_open() {
         OpenCapability::MultiProtocol((AFI::IPV6, SAFI::Unicast)),
         OpenCapability::MultiProtocol((AFI::IPV4, SAFI::Flowspec)),
         OpenCapability::FourByteASN(65000),
+        OpenCapability::RouteRefresh,
     ];
     let open = Open {
         version: 4,
         peer_asn: 65000,
         hold_timer: 60,
-        identifier: 16843008, // 1.1.1.1
+        identifier: 16843009, // 1.1.1.1
         parameters: vec![OpenParameter::Capabilities(capabilities)],
     };
     let mut data: Vec<u8> = vec![];
@@ -20,8 +21,15 @@ fn test_encode_open() {
     assert_eq!(
         data,
         vec![
-            4, 253, 232, 0, 60, 1, 1, 1, 0, 20, 2, 18, 1, 4, 0, 2, 0, 1, 1, 4, 0, 1, 0, 133, 65, 4,
-            0, 0, 253, 232
+            0x4, // Version
+            0xfd, 0xe8, // ASN
+            0, 0x3c, // Hold Timer
+            0x01, 0x01, 0x01, 0x01, // Identifier
+            28,   // Parameter Length
+            0x02, 0x06, 0x01, 0x04, 0x00, 0x02, 0x00, 0x01, // IPv6 - Unicast
+            0x02, 0x06, 0x01, 0x04, 0x00, 0x01, 0x00, 0x85, // IPv4 - FlowSpec
+            0x02, 0x06, 0x41, 0x04, 0x00, 0x00, 0xfd, 0xe8, // 4-byte ASN
+            0x02, 0x02, 0x02, 0x00 // Route Refresh
         ]
     );
 }

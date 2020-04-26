@@ -242,40 +242,40 @@ impl OpenCapability {
     }
 
     fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+        let mut cap_buf: Vec<u8> = Vec::with_capacity(20);
         match self {
             OpenCapability::MultiProtocol((afi, safi)) => {
-                buf.write_u8(1)?;
-                buf.write_u8(4)?;
-                buf.write_u16::<BigEndian>(*afi as u16)?;
-                buf.write_u8(0)?;
-                buf.write_u8(*safi as u8)
+                cap_buf.write_u8(1)?; // Capability Type
+                cap_buf.write_u8(4)?; // Capability Length
+                cap_buf.write_u16::<BigEndian>(*afi as u16)?;
+                cap_buf.write_u8(0)?; // Reserved
+                cap_buf.write_u8(*safi as u8)?;
             }
             OpenCapability::RouteRefresh => {
-                buf.write_u8(2)?;
-                buf.write_u8(0)
+                cap_buf.write_u8(2)?; // Capability Type
+                cap_buf.write_u8(0)?; // Capability Length
             }
             OpenCapability::OutboundRouteFiltering(orfs) => {
                 let length = orfs.len();
                 for (i, orf) in orfs.iter().enumerate() {
                     let (afi, safi, orf_type, orf_direction) = orf;
                     if i == 0 {
-                        buf.write_u16::<BigEndian>(*afi as u16)?;
-                        buf.write_u8(0)?; // Reserved
-                        buf.write_u8(*safi as u8)?;
-                        buf.write_u8(length as u8)?;
+                        cap_buf.write_u16::<BigEndian>(*afi as u16)?;
+                        cap_buf.write_u8(0)?; // Reserved
+                        cap_buf.write_u8(*safi as u8)?;
+                        cap_buf.write_u8(length as u8)?;
                     }
-                    buf.write_u8(*orf_type)?;
-                    buf.write_u8(*orf_direction as u8)?;
+                    cap_buf.write_u8(*orf_type)?;
+                    cap_buf.write_u8(*orf_direction as u8)?;
                 }
-                Ok(())
             }
             OpenCapability::FourByteASN(asn) => {
-                buf.write_u8(65)?;
-                buf.write_u8(4)?;
-                buf.write_u32::<BigEndian>(*asn)
+                cap_buf.write_u8(65)?; // Capability Type
+                cap_buf.write_u8(4)?; // Capability Length
+                cap_buf.write_u32::<BigEndian>(*asn)?;
             }
             OpenCapability::AddPath(add_paths) => {
-                buf.write_u8(69)?;
+                cap_buf.write_u8(69)?; // Capability Type
                 if add_paths.len() * 4 > std::u8::MAX as usize {
                     return Err(Error::new(
                         ErrorKind::Other,
@@ -285,24 +285,26 @@ impl OpenCapability {
                         ),
                     ));
                 }
-                buf.write_u8(add_paths.len() as u8 * 4)?;
+                cap_buf.write_u8(add_paths.len() as u8 * 4)?; // Capability Length
                 for p in add_paths.iter() {
-                    buf.write_u16::<BigEndian>(p.0 as u16)?;
-                    buf.write_u8(p.1 as u8)?;
-                    buf.write_u8(p.2 as u8)?;
+                    cap_buf.write_u16::<BigEndian>(p.0 as u16)?;
+                    cap_buf.write_u8(p.1 as u8)?;
+                    cap_buf.write_u8(p.2 as u8)?;
                 }
-                Ok(())
             }
             OpenCapability::Unknown {
                 cap_code,
                 cap_length,
                 value,
             } => {
-                buf.write_u8(*cap_code)?;
-                buf.write_u8(*cap_length)?;
-                buf.write_all(&value)
+                cap_buf.write_u8(*cap_code)?;
+                cap_buf.write_u8(*cap_length)?;
+                cap_buf.write_all(&value)?;
             }
         }
+        buf.write_u8(2)?; // Parameter Type
+        buf.write_u8(cap_buf.len() as u8)?;
+        buf.write_all(&cap_buf)
     }
 }
 
@@ -366,7 +368,6 @@ impl OpenParameter {
     fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
         match self {
             OpenParameter::Capabilities(caps) => {
-                buf.write_u8(2)?;
                 let mut cap_buf: Vec<u8> = Vec::with_capacity(20);
                 for c in caps.iter() {
                     c.encode(&mut cap_buf)?;
@@ -377,7 +378,6 @@ impl OpenParameter {
                         format!("Cannot encode capabilities with length {}", cap_buf.len()),
                     ));
                 }
-                buf.write_u8(cap_buf.len() as u8)?;
                 buf.write_all(&cap_buf)
             }
             OpenParameter::Unknown {
