@@ -465,74 +465,74 @@ impl PathAttribute {
     /// Encode path attribute to bytes
     pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
         use PathAttribute::*;
-        match self {
+        let mut bytes = Vec::with_capacity(8);
+        let (mut flags, identifier) = match self {
             ORIGIN(origin) => {
                 let value: u8 = match origin {
                     Origin::IGP => 0,
                     Origin::EGP => 1,
                     Origin::INCOMPLETE => 2,
                 };
-                buf.write_u8(0x40)?;
-                buf.write_u8(Identifier::ORIGIN as u8)?;
-                buf.write_u8(1)?;
-                buf.write_u8(value)?;
+                bytes.write_u8(value)?;
+                (0x40, Identifier::ORIGIN)
             }
             AS_PATH(as_path) => {
-                as_path.encode(buf)?;
+                as_path.encode(&mut bytes)?;
+                (0x40, Identifier::AS_PATH)
             }
             COMMUNITY(communities) => {
-                let mut value: Vec<u8> = Vec::with_capacity(communities.len() * 4);
                 for comm in communities {
-                    value.write_u32::<BigEndian>(*comm)?;
+                    bytes.write_u32::<BigEndian>(*comm)?;
                 }
-                buf.write_u8(0xc0)?;
-                buf.write_u8(Identifier::COMMUNITY as u8)?;
-                buf.write_u8(value.len() as u8)?;
-                buf.write_all(&value)?;
+                (0xc0, Identifier::COMMUNITY)
             }
             NEXT_HOP(next_hop) => {
-                let value: Vec<u8> = match next_hop {
-                    IpAddr::V4(addr) => addr.octets().to_vec(),
-                    IpAddr::V6(addr) => addr.octets().to_vec(),
-                };
-                buf.write_u8(0x40)?;
-                buf.write_u8(Identifier::NEXT_HOP as u8)?;
-                buf.write_u8(value.len() as u8)?;
-                buf.write_all(&value)?;
+                match next_hop {
+                    IpAddr::V4(addr) => bytes.write_all(&addr.octets())?,
+                    IpAddr::V6(addr) => bytes.write_all(&addr.octets())?,
+                }
+                (0x40, Identifier::NEXT_HOP)
             }
             MULTI_EXIT_DISC(med) => {
-                buf.write_u8(0x80)?;
-                buf.write_u8(Identifier::MULTI_EXIT_DISC as u8)?;
-                buf.write_u8(4)?;
-                buf.write_u32::<BigEndian>(*med)?;
+                bytes.write_u32::<BigEndian>(*med)?;
+                (0x80, Identifier::MULTI_EXIT_DISC)
             }
             LOCAL_PREF(pref) => {
-                buf.write_u8(0x40)?;
-                buf.write_u8(Identifier::LOCAL_PREF as u8)?;
-                buf.write_u8(4)?;
-                buf.write_u32::<BigEndian>(*pref)?;
+                bytes.write_u32::<BigEndian>(*pref)?;
+                (0x40, Identifier::LOCAL_PREF)
             }
             MP_REACH_NLRI(mp_reach) => {
-                mp_reach.encode(buf)?;
+                mp_reach.encode(&mut bytes)?;
+                (0x80, Identifier::MP_REACH_NLRI)
             }
             MP_UNREACH_NLRI(mp_unreach) => {
-                mp_unreach.encode(buf)?;
+                mp_unreach.encode(&mut bytes)?;
+                (0x80, Identifier::MP_UNREACH_NLRI)
             }
             EXTENDED_COMMUNITIES(ext_communities) => {
-                let mut value: Vec<u8> = Vec::with_capacity(ext_communities.len() * 4);
                 for comm in ext_communities {
-                    value.write_u64::<BigEndian>(*comm)?;
+                    bytes.write_u64::<BigEndian>(*comm)?;
                 }
-                buf.write_u8(0xc0)?;
-                buf.write_u8(Identifier::EXTENDED_COMMUNITIES as u8)?;
-                buf.write_u8(value.len() as u8)?;
-                buf.write_all(&value)?;
+                (0xc0, Identifier::EXTENDED_COMMUNITIES)
             }
             _ => {
-                unimplemented!();
+                unimplemented!("{:?}", self);
             }
+        };
+        // Use extended length if the attribute bytes are greater than 255
+        // Or if a PathAttribute has explicitly set the ext-length bit (0x10)
+        let is_extended_length = bytes.len() > std::u8::MAX as usize || (flags & 0x10) == 0x10;
+        if is_extended_length {
+            flags |= 0x10; // Set extended length bit
         }
-        Ok(())
+        buf.write_u8(flags)?;
+        buf.write_u8(identifier as u8)?;
+        if is_extended_length {
+            buf.write_u16::<BigEndian>(bytes.len() as u16)?;
+        } else {
+            buf.write_u8(bytes.len() as u8)?;
+        }
+        buf.write_all(&bytes)
     }
 }
 
@@ -580,7 +580,6 @@ pub struct ASPath {
 impl ASPath {
     fn parse(stream: &mut dyn Read, length: u16, _: &Capabilities) -> Result<ASPath, Error> {
         let segments = Segment::parse_unknown_segments(stream, length)?;
-
         Ok(ASPath { segments })
     }
 
@@ -591,8 +590,12 @@ impl ASPath {
         if let Segment::AS_SEQUENCE(x) = segment {
             return Some(*x.last()?);
         }
-
         None
+    }
+
+    /// Does this AsPath contain 4-byte ASNs
+    pub fn has_4_byte_asns(&self) -> bool {
+        self.segments.iter().any(|s| s.has_4_byte_asns())
     }
 
     /// Returns the AS_PATH as a singular sequence of ASN.
@@ -611,22 +614,23 @@ impl ASPath {
 
     /// Encode AS Path to bytes
     pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
-        let mut path_bytes: Vec<u8> = Vec::with_capacity(4);
         for segment in &self.segments {
             let (path_type, seq) = match segment {
                 Segment::AS_SET(set) => (1u8, set),
                 Segment::AS_SEQUENCE(seq) => (2u8, seq),
             };
-            path_bytes.push(path_type);
-            path_bytes.push(seq.len() as u8);
+            buf.write_u8(path_type)?;
+            buf.write_u8(seq.len() as u8)?;
+            let is_4_byte_aspath = self.has_4_byte_asns();
             for asn in seq.iter() {
-                path_bytes.write_u32::<BigEndian>(*asn)?;
+                if is_4_byte_aspath {
+                    buf.write_u32::<BigEndian>(*asn)?;
+                } else {
+                    buf.write_u16::<BigEndian>(*asn as u16)?;
+                }
             }
         }
-        buf.write_u8(0x40)?; // Flags
-        buf.write_u8(Identifier::AS_PATH as u8)?;
-        buf.write_u8(path_bytes.len() as u8)?;
-        buf.write_all(&path_bytes)
+        Ok(())
     }
 }
 
@@ -642,6 +646,15 @@ pub enum Segment {
 }
 
 impl Segment {
+    /// Are there any 4-byte ASNs in the Segment
+    pub fn has_4_byte_asns(&self) -> bool {
+        let asns = match &self {
+            Segment::AS_SEQUENCE(asns) => asns,
+            Segment::AS_SET(asns) => asns,
+        };
+        asns.iter().any(|a| a > &(std::u16::MAX as u32))
+    }
+
     fn parse_unknown_segments(stream: &mut dyn Read, length: u16) -> Result<Vec<Segment>, Error> {
         // Read in everything so we can touch the buffer multiple times in order to
         // work out what we have

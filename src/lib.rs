@@ -269,7 +269,7 @@ impl Message {
             Message::Update(update) => update.encode(buf),
             Message::Notification(notification) => notification.encode(buf),
             Message::KeepAlive => Ok(()),
-            Message::RouteRefresh(_refresh) => unimplemented!(),
+            Message::RouteRefresh(refresh) => refresh.encode(buf),
         }
     }
 
@@ -303,17 +303,28 @@ impl Message {
 /// Represents a BGP Route Refresh message.
 #[derive(Clone, Debug)]
 pub struct RouteRefresh {
+    /// Address Family being requested
     afi: AFI,
+    /// Subsequent Address Family being requested
     safi: SAFI,
+    /// This can be a subtype or RESERVED=0 for older senders
+    subtype: u8,
 }
 
 impl RouteRefresh {
     fn parse(stream: &mut dyn Read) -> Result<RouteRefresh, Error> {
         let afi = AFI::try_from(stream.read_u16::<BigEndian>()?)?;
-        let _ = stream.read_u8()?;
+        let subtype = stream.read_u8()?;
         let safi = SAFI::try_from(stream.read_u8()?)?;
 
-        Ok(RouteRefresh { afi, safi })
+        Ok(RouteRefresh { afi, safi, subtype })
+    }
+
+    /// Encode RouteRefresh to bytes
+    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+        buf.write_u16::<BigEndian>(self.afi as u16)?;
+        buf.write_u8(self.subtype)?;
+        buf.write_u8(self.safi as u8)
     }
 }
 

@@ -165,21 +165,16 @@ impl MPReachNLRI {
     }
 
     /// Encode Multiprotocol Reach NLRI to bytes
-    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
-        let mut nlri_bytes: Vec<u8> = Vec::with_capacity(4);
-        nlri_bytes.write_u16::<BigEndian>(self.afi as u16)?;
-        nlri_bytes.write_u8(self.safi as u8)?;
-        nlri_bytes.write_u8(self.next_hop.len() as u8)?;
-        nlri_bytes.write_all(&self.next_hop)?;
-        nlri_bytes.write_u8(0u8)?; // Reserved
-
+    pub fn encode(&self, mut buf: &mut dyn Write) -> Result<(), Error> {
+        buf.write_u16::<BigEndian>(self.afi as u16)?;
+        buf.write_u8(self.safi as u8)?;
+        buf.write_u8(self.next_hop.len() as u8)?;
+        buf.write_all(&self.next_hop)?;
+        buf.write_u8(0u8)?; // Reserved
         for nlri in &self.announced_routes {
-            nlri.encode(&mut nlri_bytes)?;
+            nlri.encode(&mut buf)?;
         }
-        buf.write_u8(0x90)?; // flags
-        buf.write_u8(Identifier::MP_REACH_NLRI as u8)?;
-        buf.write_u16::<BigEndian>(nlri_bytes.len() as u16)?;
-        buf.write_all(&nlri_bytes)
+        Ok(())
     }
 }
 
@@ -313,17 +308,11 @@ impl MPUnreachNLRI {
 
     /// Encode Multiprotocol Reach NLRI to bytes
     pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
-        let mut nlri_bytes: Vec<u8> = Vec::with_capacity(4);
-        nlri_bytes.write_u16::<BigEndian>(self.afi as u16)?;
-        nlri_bytes.write_u8(self.safi as u8)?;
-        nlri_bytes.write_u8(0u8)?; // Reserved
-
+        buf.write_u16::<BigEndian>(self.afi as u16)?;
+        buf.write_u8(self.safi as u8)?;
         for nlri in &self.withdrawn_routes {
-            nlri.encode(&mut nlri_bytes)?;
+            nlri.encode(buf)?;
         }
-        buf.write_u8(0x90)?; // flags
-        buf.write_u8(Identifier::MP_UNREACH_NLRI as u8)?;
-        buf.write_u16::<BigEndian>(nlri_bytes.len() as u16)?;
-        buf.write_all(&nlri_bytes)
+        Ok(())
     }
 }

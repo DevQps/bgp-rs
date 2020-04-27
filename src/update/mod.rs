@@ -10,6 +10,7 @@ pub use crate::flowspec::*;
 
 use crate::*;
 
+use std::collections::HashMap;
 use std::io::{Cursor, Error, Read};
 use std::net::IpAddr;
 
@@ -131,23 +132,46 @@ impl Update {
 
     /// Update message to bytes
     pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
-        // TODO: Handle Withdrawn routes
-        buf.write_u16::<BigEndian>(0)?; // self.withdrawn_routes.len() as u16)
+        // Create one buf to reuse for each Update attribute
+        let mut temp_buf: Vec<u8> = Vec::with_capacity(8);
+
+        let mut unreach_nlri: HashMap<(AFI, SAFI), Vec<NLRIEncoding>> = HashMap::new();
+        for withdrawal in &self.withdrawn_routes {
+            if withdrawal.is_ipv4() {
+                withdrawal.encode(&mut temp_buf)?;
+            } else {
+                // Encode into MP_UNREACH_NLRI
+                let nlris = unreach_nlri
+                    .entry((withdrawal.afi(), withdrawal.safi()))
+                    .or_insert_with(|| vec![]);
+                nlris.push(withdrawal.clone());
+            }
+        }
+        buf.write_u16::<BigEndian>(temp_buf.len() as u16)?;
+        buf.write_all(&temp_buf)?;
+        temp_buf.clear();
 
         // Path Attributes
-        let mut attribute_buf: Vec<u8> = Vec::with_capacity(self.attributes.len() * 8);
         for attribute in &self.attributes {
-            attribute.encode(&mut attribute_buf)?;
+            attribute.encode(&mut temp_buf)?;
         }
-        buf.write_u16::<BigEndian>(attribute_buf.len() as u16)?;
-        buf.write_all(&attribute_buf)?;
+        for ((afi, safi), unreach_nlris) in unreach_nlri.into_iter() {
+            let pa = PathAttribute::MP_UNREACH_NLRI(MPUnreachNLRI {
+                afi,
+                safi,
+                withdrawn_routes: unreach_nlris,
+            });
+            pa.encode(&mut temp_buf)?;
+        }
+        buf.write_u16::<BigEndian>(temp_buf.len() as u16)?;
+        buf.write_all(&temp_buf)?;
+        temp_buf.clear();
 
         // NLRI
-        let mut nlri_buf: Vec<u8> = Vec::with_capacity(self.announced_routes.len() * 8);
         for route in &self.announced_routes {
-            route.encode(&mut nlri_buf)?;
+            route.encode(&mut temp_buf)?;
         }
-        buf.write_all(&nlri_buf)
+        buf.write_all(&temp_buf)
     }
 
     /// Retrieves the first PathAttribute that matches the given identifier.
@@ -225,6 +249,35 @@ pub enum NLRIEncoding {
 }
 
 impl NLRIEncoding {
+    /// Check if this is a normal IPv4 NLRI for Update encoding
+    pub fn is_ipv4(&self) -> bool {
+        if let NLRIEncoding::IP(prefix) = &self {
+            prefix.protocol == AFI::IPV4
+        } else {
+            false
+        }
+    }
+
+    /// Derive the AFI for this NLRI
+    pub fn afi(&self) -> AFI {
+        use NLRIEncoding::*;
+        match &self {
+            IP(prefix) => prefix.protocol,
+            FLOWSPEC(_) => AFI::IPV4, // TODO: match ipv6 from filters
+            _ => unimplemented!(),
+        }
+    }
+
+    /// Derive the SAFI for this NLRI
+    pub fn safi(&self) -> SAFI {
+        use NLRIEncoding::*;
+        match &self {
+            IP(_) => SAFI::Unicast,
+            FLOWSPEC(_) => SAFI::Flowspec,
+            _ => unimplemented!(),
+        }
+    }
+
     /// Encode NLRI to bytes
     pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
         match self {

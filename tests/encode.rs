@@ -1,5 +1,6 @@
-use bgp_rs::*;
 use std::net::Ipv6Addr;
+
+use bgp_rs::*;
 
 #[test]
 fn test_encode_open() {
@@ -18,6 +19,7 @@ fn test_encode_open() {
     };
     let mut data: Vec<u8> = vec![];
     open.encode(&mut data).expect("Encoding OPEN");
+    #[rustfmt::skip]
     assert_eq!(
         data,
         vec![

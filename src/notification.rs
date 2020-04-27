@@ -57,9 +57,7 @@ impl Notification {
 
     /// Included message (if present)
     pub fn message(&self) -> Option<String> {
-        String::from_utf8(self.data.clone())
-            .map(|msg| Some(msg))
-            .unwrap_or(None)
+        String::from_utf8(self.data.clone()).ok()
     }
 }
 

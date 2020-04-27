@@ -366,7 +366,9 @@ impl FlowspecFilter {
         match self {
             DestinationPrefix(prefix) | SourcePrefix(prefix) => {
                 buf.write_u8(prefix.length)?;
-                buf.write_u8(0)?; // Offset
+                if prefix.protocol == AFI::IPV6 {
+                    buf.write_u8(0)?; // Ipv6 Offset
+                }
                 buf.write_all(&prefix.masked_octets())?;
             }
             IpProtocol(values)
@@ -468,7 +470,7 @@ impl fmt::Display for FlowspecFilter {
     }
 }
 
-fn value_display<O, T>(f: &mut fmt::Formatter, name: &str, value: &Vec<(O, T)>) -> fmt::Result
+fn value_display<O, T>(f: &mut fmt::Formatter, name: &str, value: &[(O, T)]) -> fmt::Result
 where
     O: fmt::Display,
     T: fmt::Display,
