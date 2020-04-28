@@ -285,6 +285,17 @@ impl NLRIEncoding {
                 buf.write_u8(prefix.length)?;
                 buf.write_all(&prefix.masked_octets())
             }
+            NLRIEncoding::IP_WITH_PATH_ID((prefix, path_id)) => {
+                buf.write_u32::<BigEndian>(*path_id)?;
+                buf.write_u8(prefix.length)?;
+                buf.write_all(&prefix.masked_octets())
+            }
+            NLRIEncoding::IP_VPN_MPLS((rd, prefix, label)) => {
+                // TODO: the parsing in nlri.rs may not be correct
+                buf.write_u32::<BigEndian>(*label)?;
+                buf.write_u64::<BigEndian>(*rd)?;
+                buf.write_all(&prefix.prefix)
+            }
             NLRIEncoding::FLOWSPEC(filters) => {
                 let mut bytes: Vec<u8> = Vec::with_capacity(16);
                 for filter in filters {
@@ -293,7 +304,7 @@ impl NLRIEncoding {
                 buf.write_u8(bytes.len() as u8)?;
                 buf.write_all(&bytes)
             }
-            _ => unimplemented!(),
+            _ => unimplemented!("{:?}", self),
         }
     }
 }
@@ -329,8 +340,38 @@ impl From<&Prefix> for IpAddr {
 }
 
 impl From<&Prefix> for (IpAddr, u8) {
+    /// Convert from IpAddr/CIDR to Prefix
+    /// ```
+    /// use std::net::{IpAddr, Ipv4Addr};
+    /// use bgp_rs::Prefix;
+    /// let prefix: Prefix = ("5.5.5.5".parse().unwrap(), 32).into();
+    /// let (addr, length) = (&prefix).into();
+    /// assert_eq!(addr, IpAddr::from(Ipv4Addr::new(5, 5, 5, 5)));
+    /// assert_eq!(length, 32);
+    /// ```
     fn from(prefix: &Prefix) -> (IpAddr, u8) {
         (IpAddr::from(prefix), prefix.length)
+    }
+}
+
+impl From<(IpAddr, u8)> for Prefix {
+    /// Convert from IpAddr/CIDR to Prefix
+    /// ```
+    /// use bgp_rs::Prefix;
+    /// let prefix: Prefix = ("5.5.5.5".parse().unwrap(), 32).into();
+    /// assert_eq!(prefix.length, 32);
+    /// assert_eq!(prefix.prefix, vec![5, 5, 5, 5]);
+    /// ```
+    fn from(prefix: (IpAddr, u8)) -> Prefix {
+        let (protocol, octets) = match prefix.0 {
+            IpAddr::V4(v4) => (AFI::IPV4, v4.octets().to_vec()),
+            IpAddr::V6(v6) => (AFI::IPV6, v6.octets().to_vec()),
+        };
+        Prefix {
+            protocol,
+            length: prefix.1,
+            prefix: octets,
+        }
     }
 }
 

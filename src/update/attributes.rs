@@ -515,6 +515,25 @@ impl PathAttribute {
                 }
                 (0xc0, Identifier::EXTENDED_COMMUNITIES)
             }
+            CLUSTER_LIST(clusters) => {
+                for cluster in clusters {
+                    bytes.write_u32::<BigEndian>(*cluster)?;
+                }
+                (0x80, Identifier::CLUSTER_LIST)
+            }
+            ORIGINATOR_ID(origin_id) => {
+                bytes.write_u32::<BigEndian>(*origin_id)?;
+                (0x80, Identifier::ORIGINATOR_ID)
+            }
+            AS4_PATH(as_path) => {
+                as_path.encode(&mut bytes)?;
+                (0xc0, Identifier::AS4_PATH)
+            }
+            AGGREGATOR((asn, ip)) => {
+                bytes.write_u16::<BigEndian>(*asn as u16)?;
+                bytes.write_u32::<BigEndian>((*ip).into())?;
+                (0xc0, Identifier::AGGREGATOR)
+            }
             _ => {
                 unimplemented!("{:?}", self);
             }

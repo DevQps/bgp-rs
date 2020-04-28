@@ -1,5 +1,3 @@
-use std::net::Ipv6Addr;
-
 use bgp_rs::*;
 
 #[test]
@@ -61,6 +59,49 @@ fn test_encode_nlri() {
 }
 
 #[test]
+fn test_encode_update_add_path() {
+    let update = Update {
+        withdrawn_routes: vec![],
+        attributes: vec![
+            PathAttribute::ORIGIN(Origin::IGP),
+            PathAttribute::AS_PATH(ASPath {
+                segments: vec![Segment::AS_SEQUENCE(vec![64511])],
+            }),
+            PathAttribute::NEXT_HOP("10.0.14.1".parse().unwrap()),
+            PathAttribute::MULTI_EXIT_DISC(0),
+            PathAttribute::LOCAL_PREF(100),
+            PathAttribute::CLUSTER_LIST(vec![167780868]),
+            PathAttribute::ORIGINATOR_ID(167776001),
+        ],
+        announced_routes: vec![
+            NLRIEncoding::IP_WITH_PATH_ID((("5.5.5.5".parse().unwrap(), 32).into(), 1)),
+            NLRIEncoding::IP_WITH_PATH_ID((("192.168.1.5".parse().unwrap(), 32).into(), 1)),
+        ],
+    };
+
+    let mut data: Vec<u8> = vec![];
+    update.encode(&mut data).expect("Encoding Update");
+    #[rustfmt::skip]
+    assert_eq!(
+        data,
+        vec![
+            0, 0, // Withdrawn Routes Length
+            0, 46, // Path Attribute Length
+            64, 1, 1, 0, // ORIGIN
+            64, 2, 4, 2, 1, 251, 255, // AS_PATH
+            64, 3, 4, 10, 0, 14, 1,  // NEXT_HOP
+            128, 4, 4, 0, 0, 0, 0, // MED
+            64, 5, 4, 0, 0, 0, 100, // LOCAL_PREF
+            128, 10, 4, 10, 0, 34, 4, // CLUSTER LIST
+            128, 9, 4, 10, 0, 15, 1, // ORIGINATOR_ID
+            // NLRI
+            0, 0, 0, 1, 32, 5, 5, 5, 5, // 5.5.5.5/32 w/ Path ID 1
+            0, 0, 0, 1, 32, 192, 168, 1, 5   // 192.168.1.5/32 w/ Path ID 1
+        ]
+    );
+}
+
+#[test]
 fn test_encode_keepalive() {
     let keepalive = Message::KeepAlive;
     let mut data: Vec<u8> = vec![];
@@ -110,19 +151,9 @@ fn test_encode_notification() {
 
 #[test]
 fn test_encode_flowspec_filter_prefix() {
-    let dest: Ipv6Addr = "3001:4:b::10".parse().unwrap();
-    let source: Ipv6Addr = "3001:1:a::10".parse().unwrap();
     let filters = vec![
-        FlowspecFilter::DestinationPrefix(Prefix {
-            protocol: AFI::IPV6,
-            length: 128,
-            prefix: dest.octets().to_vec(),
-        }),
-        FlowspecFilter::SourcePrefix(Prefix {
-            protocol: AFI::IPV6,
-            length: 128,
-            prefix: source.octets().to_vec(),
-        }),
+        FlowspecFilter::DestinationPrefix(("3001:4:b::10".parse().unwrap(), 128).into()),
+        FlowspecFilter::SourcePrefix(("3001:1:a::10".parse().unwrap(), 128).into()),
     ];
     let nlri = NLRIEncoding::FLOWSPEC(filters);
     let mut data: Vec<u8> = vec![];
