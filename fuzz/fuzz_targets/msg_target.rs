@@ -14,6 +14,7 @@ pub fn do_test(data: &[u8]) {
         capabilities: Capabilities {
             FOUR_OCTET_ASN_SUPPORT: (cap_byte & 0b1) == 0b1,
             EXTENDED_PATH_NLRI_SUPPORT: (cap_byte & 0b10) == 0b10,
+            ..Capabilities::default()
         }
     }.read();
 }
