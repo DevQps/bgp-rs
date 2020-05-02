@@ -180,7 +180,7 @@ impl OpenCapability {
                 }
                 // OUTBOUND_ROUTE_FILTERING
                 3 => {
-                    if (cap_length - 5) % 2 != 0 {
+                    if cap_length < 5 || (cap_length - 5) % 2 != 0 {
                         return Err(Error::new(
                             ErrorKind::InvalidData,
                             "Outbound Route Filtering capability has an invalid length",
