@@ -20,9 +20,14 @@ impl Notification {
     pub(crate) fn parse(header: &Header, stream: &mut dyn Read) -> Result<Notification, Error> {
         let major_err_code = stream.read_u8()?;
         let minor_err_code = stream.read_u8()?;
-        let remaining_length = header.length as usize - 21;
-        let mut data = vec![0; remaining_length as usize];
-        stream.read_exact(&mut data)?;
+        let data = if header.length > 21 {
+            let remaining_length = header.length as usize - 21;
+            let mut data = vec![0; remaining_length as usize];
+            stream.read_exact(&mut data)?;
+            data
+        } else {
+            vec![]
+        };
 
         Ok(Notification {
             major_err_code,
