@@ -1,5 +1,11 @@
 use bgp_rs::*;
 
+fn encode_as_message(message: Message) -> Vec<u8> {
+    let mut data: Vec<u8> = vec![];
+    message.encode(&mut data).expect("Encoding message");
+    data
+}
+
 #[test]
 fn test_encode_open() {
     let capabilities: Vec<OpenCapability> = vec![
@@ -32,6 +38,13 @@ fn test_encode_open() {
             0x02, 0x02, 0x02, 0x00 // Route Refresh
         ]
     );
+
+    let message_data = encode_as_message(Message::Open(open));
+    #[rustfmt::skip]
+    assert_eq!(
+        message_data[16..19],
+        [0, 57, 1][..],
+    );
 }
 
 #[test]
@@ -56,6 +69,25 @@ fn test_encode_nlri() {
     let mut data: Vec<u8> = vec![];
     nlri.encode(&mut data).expect("Encoding NLRI");
     assert_eq!(data, vec![64, 32, 1, 0, 16, 0, 0, 0, 0]);
+}
+
+#[test]
+fn test_encode_route_refresh() {
+    let refresh = RouteRefresh {
+        afi: AFI::IPV4,
+        safi: SAFI::Unicast,
+        subtype: 1u8,
+    };
+    let mut data: Vec<u8> = vec![];
+    refresh.encode(&mut data).expect("Encoding Route Refresh");
+    assert_eq!(data, vec![0, 1, 1, 1]);
+
+    let message_data = encode_as_message(Message::RouteRefresh(refresh));
+    #[rustfmt::skip]
+    assert_eq!(
+        message_data[16..19],
+        [0, 23, 5][..],
+    );
 }
 
 #[test]
@@ -99,6 +131,13 @@ fn test_encode_update_add_path() {
             0, 0, 0, 1, 32, 192, 168, 1, 5   // 192.168.1.5/32 w/ Path ID 1
         ]
     );
+
+    let message_data = encode_as_message(Message::Update(update));
+    #[rustfmt::skip]
+    assert_eq!(
+        message_data[16..19],
+        [0, 87, 2][..],
+    );
 }
 
 #[test]
@@ -114,6 +153,13 @@ fn test_encode_keepalive() {
             19, // length
             4,  // type
         ]
+    );
+
+    let message_data = encode_as_message(Message::KeepAlive);
+    #[rustfmt::skip]
+    assert_eq!(
+        message_data[16..19],
+        [0, 19, 4][..],
     );
 }
 
@@ -146,6 +192,13 @@ fn test_encode_notification() {
             6, 3, 80, 101, 101, 114, 32, 68, 101, 45, 67, 111, 110, 102, 105, 103, 117, 114, 101,
             100
         ]
+    );
+
+    let message_data = encode_as_message(Message::Notification(notification));
+    #[rustfmt::skip]
+    assert_eq!(
+        message_data[16..19],
+        [0, 39, 3][..],
     );
 }
 

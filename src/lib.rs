@@ -100,6 +100,14 @@ impl AFI {
     }
 }
 
+/// Convert u16 to AFI
+/// ```
+/// use std::convert::TryFrom;
+/// use bgp_rs::AFI;
+/// let val = 2u16;
+/// let afi = AFI::try_from(val).unwrap();
+/// assert_eq!(afi, AFI::IPV6);
+/// ```
 impl TryFrom<u16> for AFI {
     type Error = Error;
     fn try_from(v: u16) -> Result<Self, Self::Error> {
@@ -116,6 +124,12 @@ impl TryFrom<u16> for AFI {
     }
 }
 
+/// Display AFI in a human-friendly format
+/// ```
+/// use bgp_rs::AFI;
+/// let afi = AFI::IPV6;
+/// assert_eq!(&afi.to_string(), "IPv6");
+/// ```
 impl Display for AFI {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         use AFI::*;
@@ -160,6 +174,14 @@ pub enum SAFI {
     FlowspecVPN = 134,
 }
 
+/// Convert u8 to SAFI
+/// ```
+/// use std::convert::TryFrom;
+/// use bgp_rs::SAFI;
+/// let val = 1u8;
+/// let safi = SAFI::try_from(val).unwrap();
+/// assert_eq!(safi, SAFI::Unicast);
+/// ```
 impl TryFrom<u8> for SAFI {
     type Error = Error;
 
@@ -185,6 +207,12 @@ impl TryFrom<u8> for SAFI {
     }
 }
 
+/// Display SAFI in a human-friendly format
+/// ```
+/// use bgp_rs::SAFI;
+/// let safi = SAFI::Flowspec;
+/// assert_eq!(&safi.to_string(), "Flowspec");
+/// ```
 impl Display for SAFI {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         use SAFI::*;
@@ -304,11 +332,11 @@ impl Message {
 #[derive(Clone, Debug)]
 pub struct RouteRefresh {
     /// Address Family being requested
-    afi: AFI,
+    pub afi: AFI,
     /// Subsequent Address Family being requested
-    safi: SAFI,
+    pub safi: SAFI,
     /// This can be a subtype or RESERVED=0 for older senders
-    subtype: u8,
+    pub subtype: u8,
 }
 
 impl RouteRefresh {
