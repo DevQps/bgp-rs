@@ -164,7 +164,10 @@ impl PathAttribute {
     /// # Safety
     /// This function does not make use of unsafe code.
     ///
-    pub fn parse(stream: &mut Read, capabilities: &Capabilities) -> Result<PathAttribute, Error> {
+    pub fn parse(
+        stream: &mut dyn Read,
+        capabilities: &Capabilities,
+    ) -> Result<PathAttribute, Error> {
         let flags = stream.read_u8()?;
         let code = stream.read_u8()?;
 
@@ -402,7 +405,7 @@ pub enum Origin {
 }
 
 impl Origin {
-    fn parse(stream: &mut Read) -> Result<Origin, Error> {
+    fn parse(stream: &mut dyn Read) -> Result<Origin, Error> {
         match stream.read_u8()? {
             0 => Ok(Origin::IGP),
             1 => Ok(Origin::EGP),
@@ -420,7 +423,11 @@ pub struct ASPath {
 }
 
 impl ASPath {
-    fn parse(stream: &mut Read, length: u16, capabilities: &Capabilities) -> Result<ASPath, Error> {
+    fn parse(
+        stream: &mut dyn Read,
+        length: u16,
+        capabilities: &Capabilities,
+    ) -> Result<ASPath, Error> {
         let segments = if capabilities.FOUR_OCTET_ASN_SUPPORT {
             Segment::parse_u32_segments(stream, length)?
         } else {
@@ -468,7 +475,7 @@ pub enum Segment {
 }
 
 impl Segment {
-    fn parse_u16_segments(stream: &mut Read, length: u16) -> Result<Vec<Segment>, Error> {
+    fn parse_u16_segments(stream: &mut dyn Read, length: u16) -> Result<Vec<Segment>, Error> {
         let mut segments: Vec<Segment> = Vec::with_capacity(1);
 
         // While there are multiple AS_PATH segments, parse the segments.
@@ -505,7 +512,7 @@ impl Segment {
         Ok(segments)
     }
 
-    fn parse_u32_segments(stream: &mut Read, length: u16) -> Result<Vec<Segment>, Error> {
+    fn parse_u32_segments(stream: &mut dyn Read, length: u16) -> Result<Vec<Segment>, Error> {
         let mut segments: Vec<Segment> = Vec::with_capacity(1);
 
         // While there are multiple AS_PATH segments, parse the segments.
@@ -563,7 +570,7 @@ pub struct MPReachNLRI {
 impl MPReachNLRI {
     // TODO: Give argument that determines the AS size.
     fn parse(
-        stream: &mut Read,
+        stream: &mut dyn Read,
         length: u16,
         capabilities: &Capabilities,
     ) -> Result<MPReachNLRI, Error> {
@@ -623,7 +630,7 @@ pub struct MPUnreachNLRI {
 
 impl MPUnreachNLRI {
     // TODO: Handle different ASN sizes.
-    fn parse(stream: &mut Read, length: u16) -> Result<MPUnreachNLRI, Error> {
+    fn parse(stream: &mut dyn Read, length: u16) -> Result<MPUnreachNLRI, Error> {
         let afi = AFI::from(stream.read_u16::<BigEndian>()?)?;
         let safi = stream.read_u8()?;
 
