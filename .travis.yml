@@ -20,6 +20,7 @@ addons:
       - binutils-dev
       - libiberty-dev
       - libunwind8-dev
+      - libbfd-dev
 
 script:
   - cargo build --release --verbose
