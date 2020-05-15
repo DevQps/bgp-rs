@@ -518,11 +518,13 @@ fn test_flowspec_numeric_operator_bits() {
     assert!(is_end_of_list(eol.bits()));
     eol.unset_eol();
     assert!(!is_end_of_list(eol.bits()));
+    assert_eq!(&eol.to_string(), &"=");
 
     let mut not_eol = NumericOperator::new(0x06);
     assert!(!is_end_of_list(not_eol.bits()));
     not_eol.set_eol();
     assert!(is_end_of_list(not_eol.bits()));
+    assert_eq!(&not_eol.to_string(), &"<");
 
     let mut oper = NumericOperator::EQ;
     oper.set_length(1);
@@ -533,4 +535,16 @@ fn test_flowspec_numeric_operator_bits() {
     assert_eq!(find_length(oper.bits()), 4);
     oper.set_length(8);
     assert_eq!(find_length(oper.bits()), 8);
+    assert_eq!(&oper.to_string(), &"=");
+
+    let oper = NumericOperator::AND;
+    assert_eq!(&oper.to_string(), &"&& ");
+}
+
+#[test]
+fn test_flowspec_binary_operator_bits() {
+    let mut oper = BinaryOperator::MATCH;
+    oper.set_length(2);
+    assert_eq!(oper & BinaryOperator::V2, BinaryOperator::V2);
+    assert_eq!(&oper.to_string(), "=")
 }

@@ -5,7 +5,7 @@ sudo: required
 rust:
   - stable
   - beta
-  # - 1.34.0 #TODO: Re-enable
+  - 1.34.2
 
 before_script:
   - rustup component add clippy
@@ -32,5 +32,6 @@ script:
 after_success:
   - wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz && tar xzf master.tar.gz && cd kcov-master && mkdir build && cd build && cmake .. && make && make install DESTDIR=../../kcov-build && cd ../.. && rm -rf kcov-master
   - if [ ! -f "${HOME}/.cargo/bin/cargo-kcov" ]; then cargo install --force cargo-kcov; fi
+  - cargo clean
   - cargo kcov
   - bash <(curl -s https://codecov.io/bash)

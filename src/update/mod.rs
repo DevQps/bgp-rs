@@ -438,8 +438,13 @@ impl Prefix {
 fn test_prefix_masked_octets() {
     let prefix = Prefix::new(AFI::IPV4, 32, vec![1, 1, 1, 1]);
     assert_eq!(prefix.masked_octets(), &[1, 1, 1, 1]);
+    assert_eq!(&prefix.to_string(), "1.1.1.1/32");
+
     let prefix = Prefix::new(AFI::IPV4, 16, vec![1, 1, 1, 1]);
     assert_eq!(prefix.masked_octets(), &[1, 1]);
+    assert_eq!(&prefix.to_string(), "1.1.1.1/16");
+
     let prefix = Prefix::new(AFI::IPV4, 18, vec![1, 1, 1, 1]);
     assert_eq!(prefix.masked_octets(), &[1, 1, 1]);
+    assert_eq!(&prefix.to_string(), "1.1.1.1/18");
 }

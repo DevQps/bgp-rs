@@ -77,3 +77,22 @@ impl fmt::Display for Notification {
         )
     }
 }
+
+#[test]
+fn test_notification_display() {
+    let notification = Notification {
+        major_err_code: 6,
+        minor_err_code: 3,
+        data: vec![],
+    };
+    assert_eq!(&notification.to_string(), "Cease / 3 ");
+    let notification = Notification {
+        major_err_code: 2,
+        minor_err_code: 1,
+        data: "Unsupported Capability".as_bytes().to_owned(),
+    };
+    assert_eq!(
+        &notification.to_string(),
+        "OPEN Message Error / 1 Unsupported Capability"
+    );
+}
