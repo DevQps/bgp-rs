@@ -23,13 +23,14 @@ travis-ci = { repository = "DevQps/bgp-rs", branch = "master" }
 codecov = { repository = "DevQps/bgp-rs", branch = "master", service = "github" }
 maintenance = { status = "actively-developed" }
 
-[dependencies.byteorder]
-version = "1.3.1"
-features = ["i128"]
+[dependencies]
+bitflags = "1.2.0"
+byteorder = { version = "1.3.1", features = ["i128"] }
 
 [dev-dependencies]
 libflate = "0.1"
 mrt-rs = "1.1.0"
 pcap-file = "0.10.0"
 etherparse = "0.8.0"
+twoway = "0.2.0"
 

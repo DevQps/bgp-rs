@@ -1,7 +1,10 @@
-use bgp_rs::Message;
 use etherparse::PacketHeaders;
-use std::io;
-use std::io::Cursor;
+
+mod common;
+use common::parse::{
+    parse_pcap_message_bytes, parse_u16, parse_u32, parse_u32_with_path_id, test_message_roundtrip,
+    test_pcap_roundtrip,
+};
 
 #[test]
 fn pcap1() {
@@ -15,10 +18,52 @@ fn pcap1() {
     parse_pcap("res/pcap/BGP_MD5.cap");
     parse_pcap("res/pcap/BGP_MP_NLRI.cap");
     parse_pcap("res/pcap/BGP_notification.cap");
+    parse_pcap("res/pcap/BGP_notification_msg.cap");
     parse_pcap("res/pcap/BGP_redist.cap");
     parse_pcap("res/pcap/BGP_soft_reset.cap");
+    parse_pcap("res/pcap/BGP_flowspec_v6.cap");
     parse_pcap("res/pcap/EBGP_adjacency.cap");
     parse_pcap("res/pcap/IBGP_adjacency.cap");
+}
+
+#[test]
+fn pcap_roundtrip1() {
+    test_pcap_roundtrip("res/pcap/16-bit-asn.cap").unwrap();
+    test_pcap_roundtrip("res/pcap/4-byte_AS_numbers_Full_Support.cap").unwrap();
+
+    parse_pcap_message_bytes("res/pcap/4-byte_AS_numbers_Mixed_Scenario.cap")
+        .unwrap()
+        .into_iter()
+        .take(1) // Only the first message
+        .try_for_each(|message_bytes| test_message_roundtrip(&message_bytes))
+        .unwrap();
+
+    parse_pcap_message_bytes("res/pcap/bgp-add-path.cap")
+        .unwrap()
+        .into_iter()
+        // Only the first 5 messages, message 6 uses 4-byte AS_PATH even when AS < 65535
+        .take(5)
+        .try_for_each(|message_bytes| test_message_roundtrip(&message_bytes))
+        .unwrap();
+
+    test_pcap_roundtrip("res/pcap/BGP_AS_set.cap").unwrap();
+    test_pcap_roundtrip("res/pcap/BGP_hard_reset.cap").unwrap();
+    test_pcap_roundtrip("res/pcap/BGP_MD5.cap").unwrap();
+    test_pcap_roundtrip("res/pcap/BGP_MP_NLRI.cap").unwrap();
+    test_pcap_roundtrip("res/pcap/BGP_notification.cap").unwrap();
+    test_pcap_roundtrip("res/pcap/BGP_notification_msg.cap").unwrap();
+    // test_pcap_roundtrip("res/pcap/BGP_redist.cap").unwrap();
+    test_pcap_roundtrip("res/pcap/BGP_soft_reset.cap").unwrap();
+    test_pcap_roundtrip("res/pcap/BGP_flowspec_v4.cap").unwrap();
+    parse_pcap_message_bytes("res/pcap/BGP_flowspec_v6.cap")
+        .unwrap()
+        .into_iter()
+        .take(1) // Only the first message
+        .try_for_each(|message_bytes| test_message_roundtrip(&message_bytes))
+        .unwrap();
+    test_pcap_roundtrip("res/pcap/EBGP_adjacency.cap").unwrap();
+    test_pcap_roundtrip("res/pcap/IBGP_adjacency.cap").unwrap();
+    test_pcap_roundtrip("res/pcap/bgp_withdraw.cap").unwrap();
 }
 
 fn parse_pcap(filename: &str) {
@@ -59,38 +104,4 @@ fn parse_pcap(filename: &str) {
             }
         }
     }
-}
-
-fn parse_u16(packet: &[u8]) -> Result<Message, io::Error> {
-    // Construct a reader.
-    let cursor = Cursor::new(packet);
-    let mut reader = bgp_rs::Reader::new(cursor);
-    reader.capabilities.FOUR_OCTET_ASN_SUPPORT = false;
-
-    // Read and return the message.
-    let (_, message) = reader.read()?;
-    Ok(message)
-}
-
-fn parse_u32(packet: &[u8]) -> Result<Message, io::Error> {
-    // Construct a reader.
-    let cursor = Cursor::new(packet);
-    let mut reader = bgp_rs::Reader::new(cursor);
-    reader.capabilities.FOUR_OCTET_ASN_SUPPORT = true;
-
-    // Read and return the message.
-    let (_, message) = reader.read()?;
-    Ok(message)
-}
-
-fn parse_u32_with_path_id(packet: &[u8]) -> Result<Message, io::Error> {
-    // Construct a reader.
-    let cursor = Cursor::new(packet);
-    let mut reader = bgp_rs::Reader::new(cursor);
-    reader.capabilities.FOUR_OCTET_ASN_SUPPORT = true;
-    reader.capabilities.EXTENDED_PATH_NLRI_SUPPORT = true;
-
-    // Read and return the message.
-    let (_, message) = reader.read()?;
-    Ok(message)
 }

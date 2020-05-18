@@ -1,11 +1,14 @@
 use crate::Capabilities;
-use crate::NLRIEncoding;
-use crate::{Prefix, AFI};
+
 use byteorder::{BigEndian, ReadBytesExt};
+
+use std::fmt::{Display, Formatter};
 use std::io::{Cursor, Error, ErrorKind, Read};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+use crate::*;
+
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 #[allow(missing_docs)]
 pub enum Identifier {
@@ -36,6 +39,7 @@ pub enum Identifier {
     IPV6_SPECIFIC_EXTENDED_COMMUNITY = 25,
     AIGP = 26,
     PE_DISTINGUISHER_LABELS = 27,
+    ENTROPY_LABEL_CAPABILITY = 28,
     BGP_LS = 29,
     LARGE_COMMUNITY = 32,
     BGPSEC_PATH = 33,
@@ -134,6 +138,9 @@ pub enum PathAttribute {
     /// Defined in [RFC6514](http://www.iana.org/go/rfc6514).
     PE_DISTINGUISHER_LABELS,
 
+    /// Defined in [RFC6790](http://www.iana.org/go/rfc6790).
+    ENTROPY_LABEL_CAPABILITY,
+
     /// Defined in [RFC7752](http://www.iana.org/go/rfc7752).  **(deprecated)**
     BGP_LS,
 
@@ -150,6 +157,25 @@ pub enum PathAttribute {
     ATTR_SET((u32, Vec<PathAttribute>)),
 }
 
+struct ReadCountingStream<'a> {
+    stream: &'a mut dyn Read,
+    remaining: usize,
+}
+
+impl<'a> Read for ReadCountingStream<'a> {
+    fn read(&mut self, buff: &mut [u8]) -> Result<usize, Error> {
+        if buff.len() > self.remaining {
+            return Err(Error::new(
+                ErrorKind::Other,
+                "Attribute decode tried to read more than its length",
+            ));
+        }
+        let res = self.stream.read(buff)?;
+        self.remaining -= res;
+        Ok(res)
+    }
+}
+
 impl PathAttribute {
     ///
     /// Reads a Path Attribute from an object that implements Read.
@@ -164,7 +190,10 @@ impl PathAttribute {
     /// # Safety
     /// This function does not make use of unsafe code.
     ///
-    pub fn parse(stream: &mut Read, capabilities: &Capabilities) -> Result<PathAttribute, Error> {
+    pub fn parse(
+        stream: &mut dyn Read,
+        capabilities: &Capabilities,
+    ) -> Result<PathAttribute, Error> {
         let flags = stream.read_u8()?;
         let code = stream.read_u8()?;
 
@@ -175,6 +204,30 @@ impl PathAttribute {
             stream.read_u16::<BigEndian>()?
         };
 
+        let mut count_stream = ReadCountingStream {
+            stream,
+            remaining: length as usize,
+        };
+
+        let res =
+            PathAttribute::parse_limited(&mut count_stream, capabilities, flags, code, length);
+
+        // Some routes include bogus attributes, which we attempt to parse, but if they're supposed
+        // to be longer than we parsed, just ignore the remaining bytes.
+        if count_stream.remaining != 0 {
+            let mut dummy_buff = vec![0; count_stream.remaining];
+            stream.read_exact(&mut dummy_buff)?;
+        }
+        res
+    }
+
+    fn parse_limited(
+        stream: &mut dyn Read,
+        capabilities: &Capabilities,
+        _flags: u8,
+        code: u8,
+        length: u16,
+    ) -> Result<PathAttribute, Error> {
         match code {
             1 => Ok(PathAttribute::ORIGIN(Origin::parse(stream)?)),
             2 => Ok(PathAttribute::AS_PATH(ASPath::parse(
@@ -235,7 +288,9 @@ impl PathAttribute {
                 capabilities,
             )?)),
             15 => Ok(PathAttribute::MP_UNREACH_NLRI(MPUnreachNLRI::parse(
-                stream, length,
+                stream,
+                length,
+                capabilities,
             )?)),
             16 => {
                 let mut communities = Vec::with_capacity(usize::from(length / 8));
@@ -256,8 +311,15 @@ impl PathAttribute {
                 Ok(PathAttribute::AS4_AGGREGATOR((asn, ip)))
             }
             20 => {
-                stream.read_u16::<BigEndian>()?;
-                let ip = Ipv4Addr::from(stream.read_u32::<BigEndian>()?);
+                let mut buf = vec![0u8; length as usize];
+                stream.read_exact(&mut buf)?;
+
+                let mut cur = Cursor::new(buf);
+                let _ = cur.read_u16::<BigEndian>()?;
+                // I have no idea what this is.. both Junos and IOS-XR send this but it's
+                // not covered in the RFC at all
+                let _ = cur.read_u64::<BigEndian>()?;
+                let ip = Ipv4Addr::from(cur.read_u32::<BigEndian>()?);
 
                 Ok(PathAttribute::CONNECTOR(ip))
             }
@@ -299,10 +361,22 @@ impl PathAttribute {
             26 => {
                 let aigp_type = stream.read_u8()?;
                 let length = stream.read_u16::<BigEndian>()?;
-                let mut value = vec![0; usize::from(length - 3)];
-                stream.read_exact(&mut value)?;
+                if length < 3 {
+                    Err(Error::new(
+                        ErrorKind::Other,
+                        format!("Bogus AIGP length: {} < 3", length),
+                    ))
+                } else {
+                    let mut value = vec![0; usize::from(length - 3)];
+                    stream.read_exact(&mut value)?;
 
-                Ok(PathAttribute::AIGP((aigp_type, value)))
+                    Ok(PathAttribute::AIGP((aigp_type, value)))
+                }
+            }
+            28 => {
+                stream.read_exact(&mut vec![0u8; length as usize])?;
+
+                Ok(PathAttribute::ENTROPY_LABEL_CAPABILITY)
             }
             32 => {
                 let mut communities: Vec<(u32, u32, u32)> =
@@ -379,12 +453,105 @@ impl PathAttribute {
             }
             PathAttribute::AIGP(_) => Identifier::AIGP,
             PathAttribute::PE_DISTINGUISHER_LABELS => Identifier::PE_DISTINGUISHER_LABELS,
+            PathAttribute::ENTROPY_LABEL_CAPABILITY => Identifier::ENTROPY_LABEL_CAPABILITY,
             PathAttribute::BGP_LS => Identifier::BGP_LS,
             PathAttribute::LARGE_COMMUNITY(_) => Identifier::LARGE_COMMUNITY,
             PathAttribute::BGPSEC_PATH => Identifier::BGPSEC_PATH,
             PathAttribute::BGP_PREFIX_SID => Identifier::BGP_PREFIX_SID,
             PathAttribute::ATTR_SET(_) => Identifier::ATTR_SET,
         }
+    }
+
+    /// Encode path attribute to bytes
+    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+        use PathAttribute::*;
+        let mut bytes = Vec::with_capacity(8);
+        let (mut flags, identifier) = match self {
+            ORIGIN(origin) => {
+                let value: u8 = match origin {
+                    Origin::IGP => 0,
+                    Origin::EGP => 1,
+                    Origin::INCOMPLETE => 2,
+                };
+                bytes.write_u8(value)?;
+                (0x40, Identifier::ORIGIN)
+            }
+            AS_PATH(as_path) => {
+                as_path.encode(&mut bytes)?;
+                (0x40, Identifier::AS_PATH)
+            }
+            COMMUNITY(communities) => {
+                for comm in communities {
+                    bytes.write_u32::<BigEndian>(*comm)?;
+                }
+                (0xc0, Identifier::COMMUNITY)
+            }
+            NEXT_HOP(next_hop) => {
+                match next_hop {
+                    IpAddr::V4(addr) => bytes.write_all(&addr.octets())?,
+                    IpAddr::V6(addr) => bytes.write_all(&addr.octets())?,
+                }
+                (0x40, Identifier::NEXT_HOP)
+            }
+            MULTI_EXIT_DISC(med) => {
+                bytes.write_u32::<BigEndian>(*med)?;
+                (0x80, Identifier::MULTI_EXIT_DISC)
+            }
+            LOCAL_PREF(pref) => {
+                bytes.write_u32::<BigEndian>(*pref)?;
+                (0x40, Identifier::LOCAL_PREF)
+            }
+            MP_REACH_NLRI(mp_reach) => {
+                mp_reach.encode(&mut bytes)?;
+                (0x80, Identifier::MP_REACH_NLRI)
+            }
+            MP_UNREACH_NLRI(mp_unreach) => {
+                mp_unreach.encode(&mut bytes)?;
+                (0x80, Identifier::MP_UNREACH_NLRI)
+            }
+            EXTENDED_COMMUNITIES(ext_communities) => {
+                for comm in ext_communities {
+                    bytes.write_u64::<BigEndian>(*comm)?;
+                }
+                (0xc0, Identifier::EXTENDED_COMMUNITIES)
+            }
+            CLUSTER_LIST(clusters) => {
+                for cluster in clusters {
+                    bytes.write_u32::<BigEndian>(*cluster)?;
+                }
+                (0x80, Identifier::CLUSTER_LIST)
+            }
+            ORIGINATOR_ID(origin_id) => {
+                bytes.write_u32::<BigEndian>(*origin_id)?;
+                (0x80, Identifier::ORIGINATOR_ID)
+            }
+            AS4_PATH(as_path) => {
+                as_path.encode(&mut bytes)?;
+                (0xc0, Identifier::AS4_PATH)
+            }
+            AGGREGATOR((asn, ip)) => {
+                bytes.write_u16::<BigEndian>(*asn as u16)?;
+                bytes.write_u32::<BigEndian>((*ip).into())?;
+                (0xc0, Identifier::AGGREGATOR)
+            }
+            _ => {
+                unimplemented!("{:?}", self);
+            }
+        };
+        // Use extended length if the attribute bytes are greater than 255
+        // Or if a PathAttribute has explicitly set the ext-length bit (0x10)
+        let is_extended_length = bytes.len() > std::u8::MAX as usize || (flags & 0x10) == 0x10;
+        if is_extended_length {
+            flags |= 0x10; // Set extended length bit
+        }
+        buf.write_u8(flags)?;
+        buf.write_u8(identifier as u8)?;
+        if is_extended_length {
+            buf.write_u16::<BigEndian>(bytes.len() as u16)?;
+        } else {
+            buf.write_u8(bytes.len() as u8)?;
+        }
+        buf.write_all(&bytes)
     }
 }
 
@@ -402,12 +569,22 @@ pub enum Origin {
 }
 
 impl Origin {
-    fn parse(stream: &mut Read) -> Result<Origin, Error> {
+    fn parse(stream: &mut dyn Read) -> Result<Origin, Error> {
         match stream.read_u8()? {
             0 => Ok(Origin::IGP),
             1 => Ok(Origin::EGP),
             2 => Ok(Origin::INCOMPLETE),
             _ => Err(Error::new(ErrorKind::Other, "Unknown origin type found.")),
+        }
+    }
+}
+
+impl Display for Origin {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            Origin::IGP => write!(f, "IGP"),
+            Origin::EGP => write!(f, "EGP"),
+            Origin::INCOMPLETE => write!(f, "Incomplete"),
         }
     }
 }
@@ -420,13 +597,8 @@ pub struct ASPath {
 }
 
 impl ASPath {
-    fn parse(stream: &mut Read, length: u16, capabilities: &Capabilities) -> Result<ASPath, Error> {
-        let segments = if capabilities.FOUR_OCTET_ASN_SUPPORT {
-            Segment::parse_u32_segments(stream, length)?
-        } else {
-            Segment::parse_u16_segments(stream, length)?
-        };
-
+    fn parse(stream: &mut dyn Read, length: u16, _: &Capabilities) -> Result<ASPath, Error> {
+        let segments = Segment::parse_unknown_segments(stream, length)?;
         Ok(ASPath { segments })
     }
 
@@ -437,8 +609,12 @@ impl ASPath {
         if let Segment::AS_SEQUENCE(x) = segment {
             return Some(*x.last()?);
         }
-
         None
+    }
+
+    /// Does this AsPath contain 4-byte ASNs
+    pub fn has_4_byte_asns(&self) -> bool {
+        self.segments.iter().any(|s| s.has_4_byte_asns())
     }
 
     /// Returns the AS_PATH as a singular sequence of ASN.
@@ -454,6 +630,27 @@ impl ASPath {
 
         Some(sequence)
     }
+
+    /// Encode AS Path to bytes
+    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+        for segment in &self.segments {
+            let (path_type, seq) = match segment {
+                Segment::AS_SET(set) => (1u8, set),
+                Segment::AS_SEQUENCE(seq) => (2u8, seq),
+            };
+            buf.write_u8(path_type)?;
+            buf.write_u8(seq.len() as u8)?;
+            let is_4_byte_aspath = self.has_4_byte_asns();
+            for asn in seq.iter() {
+                if is_4_byte_aspath {
+                    buf.write_u32::<BigEndian>(*asn)?;
+                } else {
+                    buf.write_u16::<BigEndian>(*asn as u16)?;
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Represents the segment type of an AS_PATH. Can be either AS_SEQUENCE or AS_SET.
@@ -468,7 +665,67 @@ pub enum Segment {
 }
 
 impl Segment {
-    fn parse_u16_segments(stream: &mut Read, length: u16) -> Result<Vec<Segment>, Error> {
+    /// Are there any 4-byte ASNs in the Segment
+    pub fn has_4_byte_asns(&self) -> bool {
+        let asns = match &self {
+            Segment::AS_SEQUENCE(asns) => asns,
+            Segment::AS_SET(asns) => asns,
+        };
+        asns.iter().any(|a| a > &(std::u16::MAX as u32))
+    }
+
+    fn parse_unknown_segments(stream: &mut dyn Read, length: u16) -> Result<Vec<Segment>, Error> {
+        // Read in everything so we can touch the buffer multiple times in order to
+        // work out what we have
+        let mut buf = vec![0u8; length as usize];
+        stream.read_exact(&mut buf)?;
+        let size = buf.len();
+        let mut cur = Cursor::new(buf);
+
+        'as_len: for i in 1..=2u64 {
+            cur.set_position(0);
+
+            // Now attempt to work out whether the first segment is 2 byte or 4 byte
+            let assumed_as_len = i * 2;
+            let mut total_segments = 0u64;
+
+            while cur.position() < size as u64 {
+                let segment_type = cur.read_u8()?;
+                let segment_len = cur.read_u8()?;
+
+                // If the second segment type isn't valid, pretty sure this isn't 2 byte
+                if (assumed_as_len == 2 && total_segments >= 1)
+                    && (segment_type < 1 || segment_type > 2)
+                {
+                    continue 'as_len;
+                }
+
+                cur.set_position(cur.position() + (u64::from(segment_len) * assumed_as_len));
+                total_segments += 1;
+            }
+
+            if cur.position() == u64::from(length) {
+                cur.set_position(0);
+
+                match i {
+                    1 => {
+                        return Segment::parse_u16_segments(&mut cur, length);
+                    }
+                    2 => {
+                        return Segment::parse_u32_segments(&mut cur, length);
+                    }
+                    _ => {}
+                };
+            }
+        }
+
+        Err(Error::new(
+            ErrorKind::Other,
+            "Invalid AS_PATH length detected",
+        ))
+    }
+
+    fn parse_u16_segments(stream: &mut dyn Read, length: u16) -> Result<Vec<Segment>, Error> {
         let mut segments: Vec<Segment> = Vec::with_capacity(1);
 
         // While there are multiple AS_PATH segments, parse the segments.
@@ -485,7 +742,7 @@ impl Segment {
 
             // Parse the ASN as 16-bit ASN.
             for _ in 0..segment_length {
-                elements.push(stream.read_u16::<BigEndian>()? as u32);
+                elements.push(u32::from(stream.read_u16::<BigEndian>()?));
             }
 
             match segment_type {
@@ -494,7 +751,7 @@ impl Segment {
                 x => {
                     return Err(Error::new(
                         ErrorKind::Other,
-                        format!("Unknown AS_PATH segment type found: {}", x),
+                        format!("Unknown AS_PATH (2 byte) segment type found: {}", x),
                     ));
                 }
             }
@@ -505,11 +762,11 @@ impl Segment {
         Ok(segments)
     }
 
-    fn parse_u32_segments(stream: &mut Read, length: u16) -> Result<Vec<Segment>, Error> {
+    fn parse_u32_segments(stream: &mut dyn Read, length: u16) -> Result<Vec<Segment>, Error> {
         let mut segments: Vec<Segment> = Vec::with_capacity(1);
 
         // While there are multiple AS_PATH segments, parse the segments.
-        let mut size: i32 = length as i32;
+        let mut size: i32 = i32::from(length);
 
         while size != 0 {
             // The type of a segment, either AS_SET or AS_SEQUENCE.
@@ -532,119 +789,14 @@ impl Segment {
                 x => {
                     return Err(Error::new(
                         ErrorKind::Other,
-                        format!("Unknown AS_PATH segment type found: {}", x),
+                        format!("Unknown AS_PATH (4 byte) segment type found: {}", x),
                     ));
                 }
             }
 
-            size -= 2 + (u16::from(segment_length) * 4) as i32;
+            size -= 2 + i32::from(u16::from(segment_length) * 4);
         }
 
         Ok(segments)
-    }
-}
-
-/// Used when announcing routes to non-IPv4 addresses.
-#[derive(Debug, Clone)]
-pub struct MPReachNLRI {
-    /// The Address Family Identifier of the routes being announced.
-    pub afi: AFI,
-
-    /// The Subsequent Address Family Identifier of the routes being announced.
-    pub safi: u8,
-
-    /// The next hop of the announced routes.
-    pub next_hop: Vec<u8>,
-
-    /// The routes that are being announced.
-    pub announced_routes: Vec<NLRIEncoding>,
-}
-
-impl MPReachNLRI {
-    // TODO: Give argument that determines the AS size.
-    fn parse(
-        stream: &mut Read,
-        length: u16,
-        capabilities: &Capabilities,
-    ) -> Result<MPReachNLRI, Error> {
-        let afi = AFI::from(stream.read_u16::<BigEndian>()?)?;
-        let safi = stream.read_u8()?;
-
-        let next_hop_length = stream.read_u8()?;
-        let mut next_hop = vec![0; usize::from(next_hop_length)];
-        stream.read_exact(&mut next_hop)?;
-
-        let _reserved = stream.read_u8()?;
-
-        // ----------------------------
-        // Read NLRI
-        // ----------------------------
-        let size = length - u16::from(5 + next_hop_length);
-
-        let mut buffer = vec![0; usize::from(size)];
-        stream.read_exact(&mut buffer)?;
-        let mut cursor = Cursor::new(buffer);
-        let mut announced_routes: Vec<NLRIEncoding> = Vec::with_capacity(4);
-
-        if capabilities.EXTENDED_PATH_NLRI_SUPPORT {
-            while cursor.position() < u64::from(size) {
-                let path_id = stream.read_u32::<BigEndian>()?;
-                let prefix = Prefix::parse(&mut cursor, afi)?;
-                announced_routes.push(NLRIEncoding::IP_WITH_PATH_ID((prefix, path_id)));
-            }
-        } else {
-            while cursor.position() < u64::from(size) {
-                let prefix = Prefix::parse(&mut cursor, afi)?;
-                announced_routes.push(NLRIEncoding::IP(prefix));
-            }
-        }
-
-        Ok(MPReachNLRI {
-            afi,
-            safi,
-            next_hop,
-            announced_routes,
-        })
-    }
-}
-
-/// Used when withdrawing routes to non-IPv4 addresses.
-#[derive(Debug, Clone)]
-pub struct MPUnreachNLRI {
-    /// The Address Family Identifier of the routes being withdrawn.
-    pub afi: AFI,
-
-    /// The Subsequent Address Family Identifier of the routes being withdrawn.
-    pub safi: u8,
-
-    /// The routes being withdrawn.
-    pub withdrawn_routes: Vec<Prefix>,
-}
-
-impl MPUnreachNLRI {
-    // TODO: Handle different ASN sizes.
-    fn parse(stream: &mut Read, length: u16) -> Result<MPUnreachNLRI, Error> {
-        let afi = AFI::from(stream.read_u16::<BigEndian>()?)?;
-        let safi = stream.read_u8()?;
-
-        // ----------------------------
-        // Read NLRI
-        // ----------------------------
-        let size = length - 3;
-
-        let mut buffer = vec![0; usize::from(size)];
-        stream.read_exact(&mut buffer)?;
-        let mut cursor = Cursor::new(buffer);
-        let mut withdrawn_routes: Vec<Prefix> = Vec::with_capacity(4);
-
-        while cursor.position() < u64::from(size) {
-            withdrawn_routes.push(Prefix::parse(&mut cursor, afi)?);
-        }
-
-        Ok(MPUnreachNLRI {
-            afi,
-            safi,
-            withdrawn_routes,
-        })
     }
 }

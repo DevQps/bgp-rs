@@ -53,46 +53,189 @@
 //! }
 //! ```
 
-/// Contains the implementation of all BGP path attributes.
-pub mod attributes;
+/// Contains the OPEN Message implementation
+pub mod open;
+pub use crate::open::*;
+/// Contains the NOTIFICATION Message implementation
+pub mod notification;
+pub use crate::notification::*;
+/// Contains the UPDATE Message implementation
+pub mod update;
+pub use crate::update::*;
 
-use byteorder::{BigEndian, ReadBytesExt};
-use std::io::{Cursor, Error, ErrorKind, Read};
+mod util;
 
-pub use crate::attributes::*;
-use std::fmt::Debug;
-use std::fmt::Display;
-use std::fmt::Formatter;
-use std::net::IpAddr;
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-/// Represents an Address Family Idenfitier. Currently only IPv4 and IPv6 are supported.
-#[derive(Debug, Copy, Clone)]
+use std::convert::TryFrom;
+use std::fmt::{Debug, Display, Formatter};
+use std::io::{Error, ErrorKind, Read, Write};
+
+// RFC 4271: 4.1
+const BGP_MIN_MESSAGE_SIZE: usize = 19;
+const BGP_MAX_MESSAGE_SIZE: usize = 4096;
+
+/// Represents an Address Family Identifier. Currently only IPv4 and IPv6 are supported.
+/// Currently only IPv4, IPv6, and L2VPN are supported.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[repr(u16)]
 pub enum AFI {
     /// Internet Protocol version 4 (32 bits)
-    IPV4 = 1,
+    IPV4 = 0x01,
     /// Internet Protocol version 6 (128 bits)
-    IPV6 = 2,
+    IPV6 = 0x02,
+    /// L2VPN
+    L2VPN = 0x19,
+    /// BGPLS
+    BGPLS = 0x4004,
 }
 
 impl AFI {
-    fn from(value: u16) -> Result<AFI, Error> {
-        match value {
-            1 => Ok(AFI::IPV4),
-            2 => Ok(AFI::IPV6),
-            _ => {
-                let msg = format!(
-                    "Number {} does not represent a valid address family.",
-                    value
-                );
-                Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
-            }
+    fn empty_buffer(&self) -> Vec<u8> {
+        match self {
+            AFI::IPV4 => vec![0u8; 4],
+            AFI::IPV6 => vec![0u8; 16],
+            _ => unimplemented!(),
         }
     }
 }
 
+/// Convert u16 to AFI
+/// ```
+/// use std::convert::TryFrom;
+/// use bgp_rs::AFI;
+/// let val = 2u16;
+/// let afi = AFI::try_from(val).unwrap();
+/// assert_eq!(afi, AFI::IPV6);
+/// ```
+impl TryFrom<u16> for AFI {
+    type Error = Error;
+    fn try_from(v: u16) -> Result<Self, Self::Error> {
+        match v {
+            0x01 => Ok(AFI::IPV4),
+            0x02 => Ok(AFI::IPV6),
+            0x19 => Ok(AFI::L2VPN),
+            0x4004 => Ok(AFI::BGPLS),
+            _ => Err(Error::new(
+                ErrorKind::Other,
+                format!("Not a supported AFI: '{}'", v),
+            )),
+        }
+    }
+}
+
+/// Display AFI in a human-friendly format
+/// ```
+/// use bgp_rs::AFI;
+/// let afi = AFI::IPV6;
+/// assert_eq!(&afi.to_string(), "IPv6");
+/// ```
+impl Display for AFI {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        use AFI::*;
+        let s = match self {
+            IPV4 => "IPv4",
+            IPV6 => "IPv6",
+            L2VPN => "L2VPN",
+            BGPLS => "BGPLS",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+/// Represents an Subsequent Address Family Identifier. Currently only Unicast and Multicast are
+/// supported.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[repr(u8)]
+pub enum SAFI {
+    /// Unicast Forwarding [RFC4760]
+    Unicast = 1,
+    /// Multicast Forwarding [RFC4760]
+    Multicast = 2,
+    /// MPLS Labels [RFC3107]
+    Mpls = 4,
+    /// Multicast VPN
+    MulticastVpn = 5,
+    /// VPLS [draft-ietf-l2vpn-evpn]
+    Vpls = 65,
+    /// EVPN [draft-ietf-l2vpn-evpn]
+    Evpn = 70,
+    /// BGP LS [RFC7752]
+    BgpLs = 71,
+    /// BGP LS VPN [RFC7752]
+    BgpLsVpn = 72,
+    /// RTC [RFC4684]
+    Rtc = 132,
+    /// MPLS VPN [RFC4364]
+    MplsVpn = 128,
+    /// Flowspec Unicast
+    Flowspec = 133,
+    /// Flowspec Unicast
+    FlowspecVPN = 134,
+}
+
+/// Convert u8 to SAFI
+/// ```
+/// use std::convert::TryFrom;
+/// use bgp_rs::SAFI;
+/// let val = 1u8;
+/// let safi = SAFI::try_from(val).unwrap();
+/// assert_eq!(safi, SAFI::Unicast);
+/// ```
+impl TryFrom<u8> for SAFI {
+    type Error = Error;
+
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
+        match v {
+            1 => Ok(SAFI::Unicast),
+            2 => Ok(SAFI::Multicast),
+            4 => Ok(SAFI::Mpls),
+            5 => Ok(SAFI::MulticastVpn),
+            65 => Ok(SAFI::Vpls),
+            70 => Ok(SAFI::Evpn),
+            71 => Ok(SAFI::BgpLs),
+            72 => Ok(SAFI::BgpLsVpn),
+            128 => Ok(SAFI::MplsVpn),
+            132 => Ok(SAFI::Rtc),
+            133 => Ok(SAFI::Flowspec),
+            134 => Ok(SAFI::FlowspecVPN),
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Not a supported SAFI: '{}'", v),
+            )),
+        }
+    }
+}
+
+/// Display SAFI in a human-friendly format
+/// ```
+/// use bgp_rs::SAFI;
+/// let safi = SAFI::Flowspec;
+/// assert_eq!(&safi.to_string(), "Flowspec");
+/// ```
+impl Display for SAFI {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        use SAFI::*;
+        let s = match self {
+            Unicast => "Unicast",
+            Multicast => "Multicast",
+            Mpls => "MPLS",
+            MulticastVpn => "Multicast VPN",
+            Vpls => "VPLS",
+            Evpn => "EVPN",
+            BgpLs => "BGPLS",
+            BgpLsVpn => "BGPLSVPN",
+            Rtc => "RTC",
+            MplsVpn => "MPLS VPN",
+            Flowspec => "Flowspec",
+            FlowspecVPN => "Flowspec VPN",
+        };
+        write!(f, "{}", s)
+    }
+}
+
 /// Represents the BGP header accompanying every BGP message.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Header {
     /// Predefined marker, must be set to all ones.
     pub marker: [u8; 16],
@@ -104,8 +247,32 @@ pub struct Header {
     pub record_type: u8,
 }
 
+impl Header {
+    /// parse
+    pub fn parse(stream: &mut dyn Read) -> Result<Header, Error> {
+        let mut marker = [0u8; 16];
+        stream.read_exact(&mut marker)?;
+
+        let length = stream.read_u16::<BigEndian>()?;
+        let record_type = stream.read_u8()?;
+
+        Ok(Header {
+            marker,
+            length,
+            record_type,
+        })
+    }
+
+    /// Writes self into the stream, including the length and record type.
+    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+        buf.write_all(&self.marker)?;
+        buf.write_u16::<BigEndian>(self.length)?;
+        buf.write_u8(self.record_type)
+    }
+}
+
 /// Represents a single BGP message.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Message {
     /// Represent a BGP OPEN message.
     Open(Open),
@@ -114,7 +281,7 @@ pub enum Message {
     Update(Update),
 
     /// Represent a BGP NOTIFICATION message.
-    Notification,
+    Notification(Notification),
 
     /// Represent a BGP KEEPALIVE message.
     KeepAlive,
@@ -123,309 +290,69 @@ pub enum Message {
     RouteRefresh(RouteRefresh),
 }
 
-/// Represents a BGP Open message.
-#[derive(Debug)]
-pub struct Open {
-    /// Indicates the protocol version number of the message. The current BGP version number is 4.
-    version: u8,
-
-    /// Indicates the Autonomous System number of the sender.
-    peer_asn: u16,
-
-    /// Indicates the number of seconds the sender proposes for the value of the Hold Timer.
-    hold_timer: u16,
-
-    /// Indicates the BGP Identifier of the sender.
-    identifier: u32,
-
-    /// Optional Parameters
-    parameters: Vec<OpenParameter>,
-}
-
-impl Open {
-    fn parse(stream: &mut Read) -> Result<Open, Error> {
-        let version = stream.read_u8()?;
-        let peer_asn = stream.read_u16::<BigEndian>()?;
-        let hold_timer = stream.read_u16::<BigEndian>()?;
-        let identifier = stream.read_u32::<BigEndian>()?;
-        let mut length = stream.read_u8()?;
-
-        let mut parameters: Vec<OpenParameter> = Vec::with_capacity(length as usize);
-
-        while length > 0 {
-            let (bytes_read, parameter) = OpenParameter::parse(stream)?;
-            parameters.push(parameter);
-            length -= bytes_read;
+impl Message {
+    fn encode_noheader(&self, buf: &mut dyn Write) -> Result<(), Error> {
+        match self {
+            Message::Open(open) => open.encode(buf),
+            Message::Update(update) => update.encode(buf),
+            Message::Notification(notification) => notification.encode(buf),
+            Message::KeepAlive => Ok(()),
+            Message::RouteRefresh(refresh) => refresh.encode(buf),
         }
-
-        Ok(Open {
-            version,
-            peer_asn,
-            hold_timer,
-            identifier,
-            parameters,
-        })
     }
-}
 
-/// Represents a parameter in the optional parameter section of an Open message.
-#[derive(Debug)]
-pub struct OpenParameter {
-    /// The type of the parameter.
-    pub param_type: u8,
-
-    /// The length of the data that this parameter holds in bytes.
-    pub param_length: u8,
-
-    /// The value that is set for this parameter.
-    pub value: Vec<u8>,
-}
-
-impl OpenParameter {
-    fn parse(stream: &mut Read) -> Result<(u8, OpenParameter), Error> {
-        let param_type = stream.read_u8()?;
-        let param_length = stream.read_u8()?;
-
-        let mut value = vec![0; param_length as usize];
-        stream.read_exact(&mut value)?;
-
-        Ok((
-            2 + param_length,
-            OpenParameter {
-                param_type,
-                param_length,
-                value,
+    /// Writes message into the stream, including the appropriate header.
+    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+        let mut message_buf: Vec<u8> = Vec::with_capacity(BGP_MIN_MESSAGE_SIZE); // Start with minimum size
+        self.encode_noheader(&mut message_buf)?;
+        let message_length = message_buf.len();
+        if (message_length + BGP_MIN_MESSAGE_SIZE) > BGP_MAX_MESSAGE_SIZE {
+            return Err(Error::new(
+                ErrorKind::Other,
+                format!("Cannot encode message of length {}", message_length),
+            ));
+        }
+        let header = Header {
+            marker: [0xff; 16],
+            length: (message_length + BGP_MIN_MESSAGE_SIZE) as u16,
+            record_type: match self {
+                Message::Open(_) => 1,
+                Message::Update(_) => 2,
+                Message::Notification(_) => 3,
+                Message::KeepAlive => 4,
+                Message::RouteRefresh(_) => 5,
             },
-        ))
+        };
+        header.encode(buf)?;
+        buf.write_all(&message_buf)
     }
 }
-
-/// Represents a BGP Update message.
-#[derive(Debug)]
-pub struct Update {
-    /// A collection of routes that have been withdrawn.
-    withdrawn_routes: Vec<Prefix>,
-
-    /// A collection of attributes associated with the announced routes.
-    attributes: Vec<PathAttribute>,
-
-    /// A collection of routes that are announced by the peer.
-    announced_routes: Vec<NLRIEncoding>,
-}
-
-impl Update {
-    fn parse(
-        header: &Header,
-        stream: &mut Read,
-        capabilities: &Capabilities,
-    ) -> Result<Update, Error> {
-        let mut nlri_length: usize = header.length as usize - 23;
-
-        // ----------------------------
-        // Read withdrawn routes.
-        // ----------------------------
-        let length = stream.read_u16::<BigEndian>()? as usize;
-        let mut buffer = vec![0; length];
-        stream.read_exact(&mut buffer)?;
-        nlri_length -= length;
-
-        let mut withdrawn_routes: Vec<Prefix> = Vec::with_capacity(0);
-        let mut cursor = Cursor::new(buffer);
-        while cursor.position() < length as u64 {
-            withdrawn_routes.push(Prefix::parse(&mut cursor, AFI::IPV4)?);
-        }
-
-        // ----------------------------
-        // Read path attributes
-        // ----------------------------
-        let length = stream.read_u16::<BigEndian>()? as usize;
-        let mut buffer = vec![0; length];
-        stream.read_exact(&mut buffer)?;
-        nlri_length -= length;
-
-        let mut attributes: Vec<PathAttribute> = Vec::with_capacity(8);
-        let mut cursor = Cursor::new(buffer);
-        while cursor.position() < length as u64 {
-            let attribute = PathAttribute::parse(&mut cursor, capabilities)?;
-            attributes.push(attribute);
-        }
-
-        // ----------------------------
-        // Read NLRI
-        // ----------------------------
-        let mut buffer = vec![0; nlri_length as usize];
-
-        stream.read_exact(&mut buffer)?;
-        let mut cursor = Cursor::new(buffer);
-        let mut announced_routes: Vec<NLRIEncoding> = Vec::with_capacity(4);
-
-        if capabilities.EXTENDED_PATH_NLRI_SUPPORT {
-            while cursor.position() < nlri_length as u64 {
-                let path_id = cursor.read_u32::<BigEndian>()?;
-                let prefix = Prefix::parse(&mut cursor, AFI::IPV4)?;
-                announced_routes.push(NLRIEncoding::IP_WITH_PATH_ID((prefix, path_id)));
-            }
-        } else {
-            while cursor.position() < nlri_length as u64 {
-                announced_routes.push(NLRIEncoding::IP(Prefix::parse(&mut cursor, AFI::IPV4)?));
-            }
-        }
-
-        Ok(Update {
-            withdrawn_routes,
-            attributes,
-            announced_routes,
-        })
-    }
-
-    /// Retrieves the first PathAttribute that matches the given identifier.
-    pub fn get(&self, identifier: Identifier) -> Option<&PathAttribute> {
-        for a in &self.attributes {
-            if a.id() == identifier {
-                return Some(a);
-            }
-        }
-        None
-    }
-
-    /// Checks if this UPDATE message contains announced prefixes.
-    pub fn is_announcement(&self) -> bool {
-        if !self.announced_routes.is_empty() || self.get(Identifier::MP_REACH_NLRI).is_some() {
-            return true;
-        }
-        false
-    }
-
-    /// Checks if this UPDATE message contains withdrawn routes..
-    pub fn is_withdrawal(&self) -> bool {
-        if !self.withdrawn_routes.is_empty() || self.get(Identifier::MP_UNREACH_NLRI).is_some() {
-            return true;
-        }
-        false
-    }
-
-    /// Moves the MP_REACH and MP_UNREACH NLRI into the NLRI.
-    pub fn normalize(&mut self) {
-        // Move the MP_REACH_NLRI attribute in the NLRI.
-        if let Some(PathAttribute::MP_REACH_NLRI(routes)) = self.get(Identifier::MP_REACH_NLRI) {
-            self.announced_routes
-                .extend(routes.announced_routes.clone())
-        }
-
-        // Move the MP_REACH_NLRI attribute in the NLRI.
-        if let Some(PathAttribute::MP_UNREACH_NLRI(routes)) = self.get(Identifier::MP_UNREACH_NLRI)
-        {
-            self.withdrawn_routes
-                .extend(routes.withdrawn_routes.clone())
-        }
-    }
-}
-
-/// Represents NLRIEncodings present in the NRLI section of an UPDATE message.
-#[derive(Debug, Clone)]
-#[allow(non_camel_case_types)]
-pub enum NLRIEncoding {
-    /// Encodings that specify only an IP present, either IPv4 or IPv6
-    IP(Prefix),
-
-    /// Encodings that specify a Path Identifier as specified in RFC7911. (Prefix, Label)
-    IP_WITH_PATH_ID((Prefix, u32)),
-
-    /// Encodings that specify a Path Identifier as specified in RFC8277. (Prefix, MPLS Label)
-    IP_MPLS((Prefix, u32)),
-}
-
-/// Represents a generic prefix. For example an IPv4 prefix or IPv6 prefix.
-#[derive(Clone)]
-pub struct Prefix {
-    protocol: AFI,
-    length: u8,
-    prefix: Vec<u8>,
-}
-
-impl From<&Prefix> for IpAddr {
-    fn from(prefix: &Prefix) -> Self {
-        match prefix.protocol {
-            AFI::IPV4 => {
-                let mut buffer: [u8; 4] = [0; 4];
-                buffer[..prefix.prefix.len()].clone_from_slice(&prefix.prefix[..]);
-                IpAddr::from(buffer)
-            }
-            AFI::IPV6 => {
-                let mut buffer: [u8; 16] = [0; 16];
-                buffer[..prefix.prefix.len()].clone_from_slice(&prefix.prefix[..]);
-                IpAddr::from(buffer)
-            }
-        }
-    }
-}
-
-impl Display for Prefix {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "{}/{}", IpAddr::from(self), self.length)
-    }
-}
-
-impl Debug for Prefix {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "{}/{}", IpAddr::from(self), self.length)
-    }
-}
-
-impl Prefix {
-    fn parse(stream: &mut Read, protocol: AFI) -> Result<Prefix, Error> {
-        let length = stream.read_u8()?;
-        let mut prefix: Vec<u8> = vec![0; ((length + 7) / 8) as usize];
-        stream.read_exact(&mut prefix)?;
-
-        Ok(Prefix {
-            protocol,
-            length,
-            prefix,
-        })
-    }
-}
-
-/// Represents a BGP Notification message.
-#[derive(Debug)]
-pub struct Notification {}
 
 /// Represents a BGP Route Refresh message.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RouteRefresh {
-    afi: AFI,
-    safi: u8,
+    /// Address Family being requested
+    pub afi: AFI,
+    /// Subsequent Address Family being requested
+    pub safi: SAFI,
+    /// This can be a subtype or RESERVED=0 for older senders
+    pub subtype: u8,
 }
 
 impl RouteRefresh {
-    fn parse(stream: &mut Read) -> Result<RouteRefresh, Error> {
-        let afi = AFI::from(stream.read_u16::<BigEndian>()?)?;
-        let _ = stream.read_u8()?;
-        let safi = stream.read_u8()?;
+    fn parse(stream: &mut dyn Read) -> Result<RouteRefresh, Error> {
+        let afi = AFI::try_from(stream.read_u16::<BigEndian>()?)?;
+        let subtype = stream.read_u8()?;
+        let safi = SAFI::try_from(stream.read_u8()?)?;
 
-        Ok(RouteRefresh { afi, safi })
+        Ok(RouteRefresh { afi, safi, subtype })
     }
-}
 
-/// Contains the BGP session parameters that distinguish how BGP messages should be parsed.
-#[allow(non_snake_case)]
-pub struct Capabilities {
-    /// Support for 4-octet AS number capability.
-    pub FOUR_OCTET_ASN_SUPPORT: bool,
-
-    /// Support for reading NLRI extended with a Path Identifier
-    pub EXTENDED_PATH_NLRI_SUPPORT: bool,
-}
-
-impl Default for Capabilities {
-    fn default() -> Self {
-        Capabilities {
-            // Parse ASN as 32-bit ASN by default.
-            FOUR_OCTET_ASN_SUPPORT: true,
-
-            // Do not use Extended Path NLRI by default
-            EXTENDED_PATH_NLRI_SUPPORT: false,
-        }
+    /// Encode RouteRefresh to bytes
+    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+        buf.write_u16::<BigEndian>(self.afi as u16)?;
+        buf.write_u8(self.subtype)?;
+        buf.write_u8(self.safi as u8)
     }
 }
 
@@ -479,7 +406,11 @@ where
                 )?);
                 Ok((header, attribute))
             }
-            3 => Ok((header, Message::Notification)),
+            3 => {
+                let attribute =
+                    Message::Notification(Notification::parse(&header, &mut self.stream)?);
+                Ok((header, attribute))
+            }
             4 => Ok((header, Message::KeepAlive)),
             5 => Ok((
                 header,
