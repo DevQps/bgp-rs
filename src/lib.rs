@@ -354,21 +354,40 @@ impl RouteRefresh {
     }
 }
 
+/// An abstract way of getting a reference to a Capabilities struct.
+/// This is used in Reader to allow use of either an owned Capabilites or a reference to one.
+pub trait CapabilitiesRef {
+    /// Gets a reference to the Capabilities
+    fn get_ref(&self) -> &Capabilities;
+}
+impl CapabilitiesRef for Capabilities {
+    fn get_ref(&self) -> &Capabilities {
+        self
+    }
+}
+impl<'a> CapabilitiesRef for &'a Capabilities {
+    fn get_ref(&self) -> &Capabilities {
+        self
+    }
+}
+
 /// The BGPReader can read BGP messages from a BGP-formatted stream.
-pub struct Reader<T>
+pub struct Reader<T, C>
 where
     T: Read,
+    C: CapabilitiesRef,
 {
     /// The stream from which BGP messages will be read.
     pub stream: T,
 
     /// Capability parameters that distinguish how BGP messages should be parsed.
-    pub capabilities: Capabilities,
+    pub capabilities: C,
 }
 
-impl<T> Reader<T>
+impl<T, C> Reader<T, C>
 where
     T: Read,
+    C: CapabilitiesRef,
 {
     ///
     /// Reads the next BGP message in the stream.
@@ -400,7 +419,7 @@ where
                 let attribute = Message::Update(Update::parse(
                     &header,
                     &mut self.stream,
-                    &self.capabilities,
+                    self.capabilities.get_ref(),
                 )?);
                 Ok((header, attribute))
             }
@@ -420,7 +439,12 @@ where
             )),
         }
     }
+}
 
+impl<T> Reader<T, Capabilities>
+where
+    T: Read,
+{
     ///
     /// Constructs a BGPReader with default parameters.
     ///
@@ -435,11 +459,11 @@ where
     /// This function does not make use of unsafe code.
     ///
     ///
-    pub fn new(stream: T) -> Reader<T>
+    pub fn new(stream: T) -> Self
     where
         T: Read,
     {
-        Reader::<T> {
+        Reader::<T, Capabilities> {
             stream,
             capabilities: Default::default(),
         }
