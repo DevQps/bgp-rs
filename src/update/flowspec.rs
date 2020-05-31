@@ -269,7 +269,7 @@ impl FlowspecFilter {
             Fragment(_) => 12,
         }
     }
-    pub(crate) fn parse(stream: &mut dyn Read, afi: AFI) -> Result<Self, Error> {
+    pub(crate) fn parse(stream: &mut impl Read, afi: AFI) -> Result<Self, Error> {
         let filter_type = stream.read_u8()?;
         match filter_type {
             // Prefix-based filters
@@ -360,7 +360,7 @@ impl FlowspecFilter {
     }
 
     /// Encode Flowspec NLRI to bytes
-    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+    pub fn encode(&self, buf: &mut impl Write) -> Result<(), Error> {
         use FlowspecFilter::*;
         buf.write_u8(self.code())?;
         match self {

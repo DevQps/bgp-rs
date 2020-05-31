@@ -24,7 +24,7 @@ pub struct MPReachNLRI {
 impl MPReachNLRI {
     /// Parse MPUnreachNLRI information
     pub(crate) fn parse(
-        stream: &mut dyn Read,
+        stream: &mut impl Read,
         length: u16,
         capabilities: &Capabilities,
     ) -> Result<MPReachNLRI, Error> {
@@ -167,7 +167,7 @@ impl MPReachNLRI {
     }
 
     /// Encode Multiprotocol Reach NLRI to bytes
-    pub fn encode(&self, mut buf: &mut dyn Write) -> Result<(), Error> {
+    pub fn encode(&self, mut buf: &mut impl Write) -> Result<(), Error> {
         buf.write_u16::<BigEndian>(self.afi as u16)?;
         buf.write_u8(self.safi as u8)?;
         buf.write_u8(self.next_hop.len() as u8)?;
@@ -196,7 +196,7 @@ pub struct MPUnreachNLRI {
 impl MPUnreachNLRI {
     /// Parse MPUnreachNLRI information
     pub(crate) fn parse(
-        stream: &mut dyn Read,
+        stream: &mut impl Read,
         length: u16,
         capabilities: &Capabilities,
     ) -> Result<MPUnreachNLRI, Error> {
@@ -311,7 +311,7 @@ impl MPUnreachNLRI {
     }
 
     /// Encode Multiprotocol Reach NLRI to bytes
-    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+    pub fn encode(&self, buf: &mut impl Write) -> Result<(), Error> {
         buf.write_u16::<BigEndian>(self.afi as u16)?;
         buf.write_u8(self.safi as u8)?;
         for nlri in &self.withdrawn_routes {

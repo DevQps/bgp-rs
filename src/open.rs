@@ -33,7 +33,7 @@ pub struct Open {
 
 impl Open {
     /// Parse Open message (version, ASN, parameters, etc...)
-    pub fn parse(stream: &mut dyn Read) -> Result<Open, Error> {
+    pub fn parse(stream: &mut impl Read) -> Result<Open, Error> {
         let version = stream.read_u8()?;
         let peer_asn = stream.read_u16::<BigEndian>()?;
         let hold_timer = stream.read_u16::<BigEndian>()?;
@@ -64,7 +64,7 @@ impl Open {
     }
 
     /// Encode message to bytes
-    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+    pub fn encode(&self, buf: &mut impl Write) -> Result<(), Error> {
         buf.write_u8(self.version)?;
         buf.write_u16::<BigEndian>(self.peer_asn)?;
         buf.write_u16::<BigEndian>(self.hold_timer)?;
@@ -148,7 +148,7 @@ pub enum OpenCapability {
 }
 
 impl OpenCapability {
-    fn parse(stream: &mut dyn Read) -> Result<(u16, OpenCapability), Error> {
+    fn parse(stream: &mut impl Read) -> Result<(u16, OpenCapability), Error> {
         let cap_code = stream.read_u8()?;
         let cap_length = stream.read_u8()?;
 
@@ -241,7 +241,7 @@ impl OpenCapability {
         ))
     }
 
-    fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+    fn encode(&self, buf: &mut impl Write) -> Result<(), Error> {
         let mut cap_buf: Vec<u8> = Vec::with_capacity(20);
         match self {
             OpenCapability::MultiProtocol((afi, safi)) => {
@@ -328,7 +328,7 @@ pub enum OpenParameter {
 }
 
 impl OpenParameter {
-    fn parse(stream: &mut dyn Read) -> Result<(u16, OpenParameter), Error> {
+    fn parse(stream: &mut impl Read) -> Result<(u16, OpenParameter), Error> {
         let param_type = stream.read_u8()?;
         let param_length = stream.read_u8()?;
 
@@ -365,7 +365,7 @@ impl OpenParameter {
         ))
     }
 
-    fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+    fn encode(&self, buf: &mut impl Write) -> Result<(), Error> {
         match self {
             OpenParameter::Capabilities(caps) => {
                 let mut cap_buf: Vec<u8> = Vec::with_capacity(20);
