@@ -1,9 +1,12 @@
+#[cfg(feature = "flowspec")]
 use bgp_rs::flowspec::{FlowspecFilter, NumericOperator};
 use bgp_rs::{Identifier, Message, NLRIEncoding, PathAttribute, AFI, SAFI};
 
 mod common;
+#[cfg(feature = "flowspec")]
 use common::parse::{parse_pcap_messages, transform_u64_to_bytes};
 
+#[cfg(feature = "flowspec")]
 #[test]
 fn test_flowspec_v6() {
     let updates: Vec<_> = parse_pcap_messages("res/pcap/BGP_flowspec_v6.cap")
@@ -57,6 +60,7 @@ fn test_flowspec_v6() {
     }
 }
 
+#[cfg(feature = "flowspec")]
 #[test]
 fn test_flowspec_v6_redirect() {
     let updates: Vec<_> = parse_pcap_messages("res/pcap/BGP_flowspec_redirect.cap")
@@ -108,6 +112,7 @@ fn test_flowspec_v6_redirect() {
     }
 }
 
+#[cfg(feature = "flowspec")]
 #[test]
 fn test_flowspec_dscp() {
     let updates: Vec<_> = parse_pcap_messages("res/pcap/BGP_flowspec_dscp.cap")
@@ -140,6 +145,7 @@ fn test_flowspec_dscp() {
     }
 }
 
+#[cfg(feature = "flowspec")]
 #[test]
 fn test_flowspec_v4() {
     let updates: Vec<_> = parse_pcap_messages("res/pcap/BGP_flowspec_v4.cap")
