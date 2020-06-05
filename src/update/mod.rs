@@ -4,8 +4,8 @@ pub use crate::attributes::*;
 /// Contains the implementation of BGP NLRI.
 pub mod nlri;
 pub use crate::nlri::*;
-/// Contains the implementation of Flowspec attributes
 #[cfg(feature = "flowspec")]
+/// Contains the implementation of Flowspec attributes
 pub mod flowspec;
 #[cfg(feature = "flowspec")]
 pub use crate::flowspec::*;

@@ -25,7 +25,9 @@ maintenance = { status = "actively-developed" }
 
 [features]
 default = []
-# Enable Flowspec SAFI decoding/encoding
+# Enable Flowspec SAFI & NLRI decoding/encoding
+# Flowspec RFC: https://tools.ietf.org/html/rfc5575
+# Uses bitflags for Flowspec Filter operators
 flowspec = ["bitflags"]
 
 [dependencies]
