@@ -1,5 +1,6 @@
 #[cfg(feature = "flowspec")]
 use bgp_rs::flowspec::{FlowspecFilter, NumericOperator};
+#[cfg(feature = "flowspec")]
 use bgp_rs::{Identifier, Message, NLRIEncoding, PathAttribute, AFI, SAFI};
 
 mod common;
