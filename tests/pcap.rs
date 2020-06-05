@@ -21,9 +21,14 @@ fn pcap1() {
     parse_pcap("res/pcap/BGP_notification_msg.cap");
     parse_pcap("res/pcap/BGP_redist.cap");
     parse_pcap("res/pcap/BGP_soft_reset.cap");
-    parse_pcap("res/pcap/BGP_flowspec_v6.cap");
     parse_pcap("res/pcap/EBGP_adjacency.cap");
     parse_pcap("res/pcap/IBGP_adjacency.cap");
+}
+
+#[cfg(feature = "flowspec")]
+#[test]
+fn pcap_flowspec() {
+    parse_pcap("res/pcap/BGP_flowspec_v6.cap");
 }
 
 #[test]
@@ -54,6 +59,14 @@ fn pcap_roundtrip1() {
     test_pcap_roundtrip("res/pcap/BGP_notification_msg.cap").unwrap();
     // test_pcap_roundtrip("res/pcap/BGP_redist.cap").unwrap();
     test_pcap_roundtrip("res/pcap/BGP_soft_reset.cap").unwrap();
+    test_pcap_roundtrip("res/pcap/EBGP_adjacency.cap").unwrap();
+    test_pcap_roundtrip("res/pcap/IBGP_adjacency.cap").unwrap();
+    test_pcap_roundtrip("res/pcap/bgp_withdraw.cap").unwrap();
+}
+
+#[cfg(feature = "flowspec")]
+#[test]
+fn pcap_roundtrip_flowspec() {
     test_pcap_roundtrip("res/pcap/BGP_flowspec_v4.cap").unwrap();
     parse_pcap_message_bytes("res/pcap/BGP_flowspec_v6.cap")
         .unwrap()
@@ -61,9 +74,6 @@ fn pcap_roundtrip1() {
         .take(1) // Only the first message
         .try_for_each(|message_bytes| test_message_roundtrip(&message_bytes))
         .unwrap();
-    test_pcap_roundtrip("res/pcap/EBGP_adjacency.cap").unwrap();
-    test_pcap_roundtrip("res/pcap/IBGP_adjacency.cap").unwrap();
-    test_pcap_roundtrip("res/pcap/bgp_withdraw.cap").unwrap();
 }
 
 fn parse_pcap(filename: &str) {

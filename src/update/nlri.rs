@@ -106,6 +106,7 @@ impl MPReachNLRI {
 
                             announced_routes.push(NLRIEncoding::IP_VPN_MPLS((rd, prefix, 0u32)));
                         }
+                        #[cfg(feature = "flowspec")]
                         SAFI::Flowspec => {
                             let mut nlri_length = cursor.read_u8()?;
                             let mut filters: Vec<FlowspecFilter> = vec![];
@@ -116,6 +117,7 @@ impl MPReachNLRI {
                             }
                             announced_routes.push(NLRIEncoding::FLOWSPEC(filters));
                         }
+                        #[cfg(feature = "flowspec")]
                         SAFI::FlowspecVPN => {
                             unimplemented!();
                         }
@@ -268,6 +270,7 @@ impl MPUnreachNLRI {
                         0u32,
                     )));
                 }
+                #[cfg(feature = "flowspec")]
                 SAFI::Flowspec => {
                     let mut nlri_length = cursor.read_u8()?;
                     let mut filters: Vec<FlowspecFilter> = vec![];
@@ -278,6 +281,7 @@ impl MPUnreachNLRI {
                     }
                     withdrawn_routes.push(NLRIEncoding::FLOWSPEC(filters));
                 }
+                #[cfg(feature = "flowspec")]
                 SAFI::FlowspecVPN => {
                     unimplemented!();
                 }
