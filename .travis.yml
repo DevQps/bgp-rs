@@ -25,6 +25,7 @@ addons:
 script:
   - cargo build --release --verbose
   - cargo test --release --verbose
+  - cargo test --features flowspec --release --verbose
   - cargo doc --release --verbose
   - cargo clippy --release --verbose
   - if [ "$(rustup show | grep default | grep stable)" != "" ]; then cd fuzz && cargo test --verbose && ./travis-fuzz.sh; fi
