@@ -10,6 +10,46 @@ fn encode_as_message(message: Message) -> Vec<u8> {
 fn test_encode_open() {
     let capabilities: Vec<OpenCapability> = vec![
         OpenCapability::MultiProtocol((AFI::IPV6, SAFI::Unicast)),
+        OpenCapability::FourByteASN(65000),
+        OpenCapability::RouteRefresh,
+    ];
+    let open = Open {
+        version: 4,
+        peer_asn: 65000,
+        hold_timer: 60,
+        identifier: 16843009, // 1.1.1.1
+        parameters: vec![OpenParameter::Capabilities(capabilities)],
+    };
+    let mut data: Vec<u8> = vec![];
+    open.encode(&mut data).expect("Encoding OPEN");
+    #[rustfmt::skip]
+    assert_eq!(
+        data,
+        vec![
+            0x4, // Version
+            0xfd, 0xe8, // ASN
+            0, 0x3c, // Hold Timer
+            0x01, 0x01, 0x01, 0x01, // Identifier
+            20, // Parameter Length
+            0x02, 0x06, 0x01, 0x04, 0x00, 0x02, 0x00, 0x01, // IPv6 - Unicast
+            0x02, 0x06, 0x41, 0x04, 0x00, 0x00, 0xfd, 0xe8, // 4-byte ASN
+            0x02, 0x02, 0x02, 0x00 // Route Refresh
+        ]
+    );
+
+    let message_data = encode_as_message(Message::Open(open));
+    #[rustfmt::skip]
+    assert_eq!(
+        message_data[16..19],
+        [0, 49, 1][..],
+    );
+}
+
+#[cfg(feature = "flowspec")]
+#[test]
+fn test_encode_open_flowspec() {
+    let capabilities: Vec<OpenCapability> = vec![
+        OpenCapability::MultiProtocol((AFI::IPV6, SAFI::Unicast)),
         OpenCapability::MultiProtocol((AFI::IPV4, SAFI::Flowspec)),
         OpenCapability::FourByteASN(65000),
         OpenCapability::RouteRefresh,
@@ -202,6 +242,7 @@ fn test_encode_notification() {
     );
 }
 
+#[cfg(feature = "flowspec")]
 #[test]
 fn test_encode_flowspec_filter_prefix() {
     let filters = vec![
@@ -226,6 +267,7 @@ fn test_encode_flowspec_filter_prefix() {
     );
 }
 
+#[cfg(feature = "flowspec")]
 #[test]
 fn test_encode_flowspec_filter_ports() {
     let filters = vec![

@@ -32,7 +32,7 @@ pub struct Open {
 }
 
 impl Open {
-    /// parse
+    /// Parse Open message (version, ASN, parameters, etc...)
     pub fn parse(stream: &mut dyn Read) -> Result<Open, Error> {
         let version = stream.read_u8()?;
         let peer_asn = stream.read_u16::<BigEndian>()?;

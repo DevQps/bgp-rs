@@ -4,8 +4,10 @@ pub use crate::attributes::*;
 /// Contains the implementation of BGP NLRI.
 pub mod nlri;
 pub use crate::nlri::*;
+#[cfg(feature = "flowspec")]
 /// Contains the implementation of Flowspec attributes
 pub mod flowspec;
+#[cfg(feature = "flowspec")]
 pub use crate::flowspec::*;
 
 use crate::*;
@@ -245,6 +247,7 @@ pub enum NLRIEncoding {
     L2VPN((u64, u16, u16, u16, u32)),
 
     /// Flowspec Traffic Filter Specification - RFC5575
+    #[cfg(feature = "flowspec")]
     FLOWSPEC(Vec<FlowspecFilter>),
 }
 
@@ -263,6 +266,7 @@ impl NLRIEncoding {
         use NLRIEncoding::*;
         match &self {
             IP(prefix) => prefix.protocol,
+            #[cfg(feature = "flowspec")]
             FLOWSPEC(_) => AFI::IPV4, // TODO: match ipv6 from filters
             _ => unimplemented!(),
         }
@@ -273,6 +277,7 @@ impl NLRIEncoding {
         use NLRIEncoding::*;
         match &self {
             IP(_) => SAFI::Unicast,
+            #[cfg(feature = "flowspec")]
             FLOWSPEC(_) => SAFI::Flowspec,
             _ => unimplemented!(),
         }
@@ -296,6 +301,7 @@ impl NLRIEncoding {
                 buf.write_u64::<BigEndian>(*rd)?;
                 buf.write_all(&prefix.prefix)
             }
+            #[cfg(feature = "flowspec")]
             NLRIEncoding::FLOWSPEC(filters) => {
                 let mut bytes: Vec<u8> = Vec::with_capacity(16);
                 for filter in filters {

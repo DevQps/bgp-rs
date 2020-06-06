@@ -97,3 +97,18 @@ In the table below one can see the status of each path attribute:
 |   35   |   Internal Only To Customer **(temporary)**   |                    [draft-ietf-idr-bgp-open-policy](http://www.iana.org/go/draft-ietf-idr-bgp-open-policy)                    | Not yet implemented |
 |   40   |                 BGP Prefix-SID                |                   [RFC-ietf-idr-bgp-prefix-sid-27](http://www.iana.org/go/draft-ietf-idr-bgp-prefix-sid-27)                   | Not yet implemented |
 |   128  |                    ATTR_SET                   |                                           [RFC6368](http://www.iana.org/go/rfc6368)                                           |     Implemented     |
+
+# Crate Features
+The default feature set includes encoding & decoding of BGP Messages with attributes listed above
+
+## Enable Flowspec NLRI
+To enable Flowspec NLRI (SAFI 133) parsing ([RFC5575](https://tools.ietf.org/html/rfc5575)), specify the `flowspec` feature:
+
+```
+[dependencies]
+...
+bgp-rs = { version = "*", features = ["flowspec"]}
+...
+```
+
+*NOTE*: This will add the [`bitflags`](https://crates.io/crates/bitflags) dependency
