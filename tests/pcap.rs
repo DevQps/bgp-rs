@@ -84,7 +84,6 @@ fn parse_pcap(filename: &str) {
             Ok(value) => {
                 if let Some(x) = value.transport {
                     if x.tcp().is_some() && value.payload.len() > 10 {
-
                         let mut result = parse_u32(value.payload);
 
                         if result.is_err() {
