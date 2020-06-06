@@ -143,7 +143,7 @@ impl Update {
                 // Encode into MP_UNREACH_NLRI
                 let nlris = unreach_nlri
                     .entry((withdrawal.afi(), withdrawal.safi()))
-                    .or_insert_with(|| vec![]);
+                    .or_insert_with(Vec::new);
                 nlris.push(withdrawal.clone());
             }
         }

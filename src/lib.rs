@@ -15,41 +15,39 @@
 //! use libflate::gzip::Decoder;
 //! use bgp_rs::{Identifier, PathAttribute};
 //!
-//! fn main() {
-//!    // Download an update message.
-//!    let file = File::open("res/mrt/updates.20190101.0000.gz").unwrap();
+//! // Download an update message.
+//! let file = File::open("res/mrt/updates.20190101.0000.gz").unwrap();
 //!
-//!    // Decode the GZIP stream.
-//!    let decoder = Decoder::new(BufReader::new(file)).unwrap();
+//! // Decode the GZIP stream.
+//! let decoder = Decoder::new(BufReader::new(file)).unwrap();
 //!
-//!    // Create a new MRTReader with a Cursor such that we can keep track of the position.
-//!    let mut reader = mrt_rs::Reader { stream: decoder };
+//! // Create a new MRTReader with a Cursor such that we can keep track of the position.
+//! let mut reader = mrt_rs::Reader { stream: decoder };
 //!
-//!    // Keep reading MRT (Header, Record) tuples till the end of the file has been reached.
-//!    while let Ok(Some((_, record))) = reader.read() {
+//! // Keep reading MRT (Header, Record) tuples till the end of the file has been reached.
+//! while let Ok(Some((_, record))) = reader.read() {
 //!
-//!        // Extract BGP4MP::MESSAGE_AS4 entries.
-//!        if let Record::BGP4MP(BGP4MP::MESSAGE_AS4(x)) = record {
+//!     // Extract BGP4MP::MESSAGE_AS4 entries.
+//!     if let Record::BGP4MP(BGP4MP::MESSAGE_AS4(x)) = record {
 //!
-//!            // Read each BGP (Header, Message)
-//!            let cursor = Cursor::new(x.message);
-//!            let mut reader = bgp_rs::Reader::new(cursor);
-//!            let (_, message) = reader.read().unwrap();
+//!         // Read each BGP (Header, Message)
+//!         let cursor = Cursor::new(x.message);
+//!         let mut reader = bgp_rs::Reader::new(cursor);
+//!         let (_, message) = reader.read().unwrap();
 //!
-//!            // If this is an UPDATE message that contains announcements, extract its origin.
-//!            if let bgp_rs::Message::Update(x) = message {
-//!                if x.is_announcement() {
-//!                    if let PathAttribute::AS_PATH(path) = x.get(Identifier::AS_PATH).unwrap()
-//!                    {
-//!                        // Test the path.origin() method.
-//!                        let origin = path.origin();
+//!         // If this is an UPDATE message that contains announcements, extract its origin.
+//!         if let bgp_rs::Message::Update(x) = message {
+//!             if x.is_announcement() {
+//!                 if let PathAttribute::AS_PATH(path) = x.get(Identifier::AS_PATH).unwrap()
+//!                 {
+//!                     // Test the path.origin() method.
+//!                     let origin = path.origin();
 //!
-//!                        // Do other stuff ...
-//!                    }
-//!                }
-//!            }
-//!        }
-//!    }
+//!                     // Do other stuff ...
+//!                 }
+//!             }
+//!         }
+//!     }
 //! }
 //! ```
 
