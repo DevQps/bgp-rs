@@ -1,0 +1,107 @@
+name: Validation
+
+on: [push, pull_request]
+
+jobs:
+  conventions:
+    name: Conventions
+    strategy:
+      matrix:
+        os: ["ubuntu-latest"]
+        toolchain: ["stable", "beta", "nightly"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install the Rust toolchain
+        uses: actions-rs/toolchain@v1
+        id: toolchain
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: rustfmt, clippy
+          override: true
+          default: true
+
+      - name: Perform rustfmt checks.
+        run: cargo fmt -- --check
+
+      - name: Attempt to restore the compiled artifacts from cache
+        uses: actions/cache@v1
+        with:
+          path: target
+          key: ${{ matrix.os }}-${{ steps.toolchain.outputs.rustc_hash }}-build-${{ hashFiles('Cargo.lock') }}
+
+      - name: Perform clippy checks.
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  testing:
+    name: Testing
+    strategy:
+      matrix:
+        os: ["windows-2019", "ubuntu-16.04", "ubuntu-18.04", "macOS-latest"]
+        toolchain: ["stable", "beta", "nightly"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install the Rust toolchain
+        uses: actions-rs/toolchain@v1
+        id: toolchain
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          override: true
+          default: true
+
+      - name: Attempt to restore the compiled artifacts from cache
+        uses: actions/cache@v1
+        with:
+          path: target
+          key: ${{ matrix.os }}-${{ steps.toolchain.outputs.rustc_hash }}-build-${{ hashFiles('Cargo.lock') }}
+
+      - name: Build
+        id: build
+        run: cargo build --all-targets --all-features --verbose
+
+      - name: Perform unit testing and integration testing
+        run: cargo test --workspace --all-targets --all-features
+
+      - name: Perform documentation tests
+        run: cargo test --doc
+
+  code_coverage:
+    name: Code Coverage
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Run cargo-tarpaulin
+        uses: actions-rs/tarpaulin@v0.1
+        with:
+          args: "--verbose --all-features --workspace"
+
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v1
+
+  fuzzing:
+    name: Fuzzing
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Perform fuzzing
+        run: if [ "$(rustup show | grep default | grep stable)" != "" ]; then cd fuzz && cargo test --verbose && ./travis-fuzz.sh; fi
+
