@@ -98,6 +98,9 @@ In the table below one can see the status of each path attribute:
 |   40   |                 BGP Prefix-SID                |                   [RFC-ietf-idr-bgp-prefix-sid-27](http://www.iana.org/go/draft-ietf-idr-bgp-prefix-sid-27)                   | Not yet implemented |
 |   128  |                    ATTR_SET                   |                                           [RFC6368](http://www.iana.org/go/rfc6368)                                           |     Implemented     |
 
+# Minimum Supported Rust Version
+This crate's minimum supported `rustc` version is `1.34.2`.
+
 # Crate Features
 The default feature set includes encoding & decoding of BGP Messages with attributes listed above
 
