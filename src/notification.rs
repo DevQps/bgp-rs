@@ -17,7 +17,9 @@ pub struct Notification {
 }
 
 impl Notification {
-    pub(crate) fn parse(header: &Header, stream: &mut dyn Read) -> Result<Notification, Error> {
+    /// Parse Notification message
+    /// Parses the error codes and checks for additional (optional) data
+    pub fn parse(header: &Header, stream: &mut dyn Read) -> Result<Notification, Error> {
         let major_err_code = stream.read_u8()?;
         let minor_err_code = stream.read_u8()?;
         let data = if header.length > 21 {
