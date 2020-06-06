@@ -33,7 +33,7 @@ pub mod parse {
                     loop {
                         if let Some(i) = find_bytes(&value.payload[pos..], &[255; 16]) {
                             pos += i;
-                            let length: usize = *&value.payload[pos + 17] as usize;
+                            let length: usize = value.payload[pos + 17] as usize;
                             let stream = &value.payload[pos..pos + length];
                             message_chunks.push(stream.to_owned());
                             pos += length as usize;

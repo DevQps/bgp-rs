@@ -89,7 +89,7 @@ fn test_notification_display() {
     let notification = Notification {
         major_err_code: 2,
         minor_err_code: 1,
-        data: "Unsupported Capability".as_bytes().to_owned(),
+        data: b"Unsupported Capability".to_vec(),
     };
     assert_eq!(
         &notification.to_string(),

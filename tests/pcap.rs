@@ -83,19 +83,13 @@ fn parse_pcap(filename: &str) {
             Err(value) => println!("Err {:?}", value),
             Ok(value) => {
                 if let Some(x) = value.transport {
-                    if let Some(_) = x.tcp() {
-                        if value.payload.len() > 10 {
-                            let mut result = parse_u32(value.payload);
+                    if x.tcp().is_some() && value.payload.len() > 10 {
+                        let mut result = parse_u32(value.payload);
 
-                            if let Err(_) = result {
-                                result = parse_u16(value.payload);
-                                if let Err(_) = result {
-                                    result = parse_u32_with_path_id(value.payload);
-                                    result.unwrap();
-                                } else {
-                                    result.unwrap();
-                                }
-                            } else {
+                        if result.is_err() {
+                            result = parse_u16(value.payload);
+                            if result.is_err() {
+                                result = parse_u32_with_path_id(value.payload);
                                 result.unwrap();
                             }
                         }
