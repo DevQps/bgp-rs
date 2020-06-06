@@ -1,5 +1,5 @@
 # Border Gateway Protocol in Rust (bgp-rs)
-[![Build Status](https://travis-ci.com/DevQps/bgp-rs.svg?branch=master)](https://travis-ci.com/DevQps/bgp-rs) [![codecov](https://codecov.io/gh/DevQps/bgp-rs/branch/master/graph/badge.svg)](https://codecov.io/gh/DevQps/bgp-rs)
+[![Build Status](https://github.com/DevQps/bgp-rs/workflows/Validation/badge.svg)](https://github.com/DevQps/bgp-rs/actions) [![codecov](https://codecov.io/gh/DevQps/bgp-rs/branch/master/graph/badge.svg)](https://codecov.io/gh/DevQps/bgp-rs)
 
 A library for parsing Border Gateway Protocol (BGP) formatted streams in Rust.
 Messages such as UPDATE, OPEN, KEEPALIVE and NOTIFICATION can be read this way.
