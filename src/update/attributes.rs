@@ -157,12 +157,12 @@ pub enum PathAttribute {
     ATTR_SET((u32, Vec<PathAttribute>)),
 }
 
-struct ReadCountingStream<'a> {
-    stream: &'a mut dyn Read,
+struct ReadCountingStream<'a, R: Read> {
+    stream: &'a mut R,
     remaining: usize,
 }
 
-impl<'a> Read for ReadCountingStream<'a> {
+impl<'a, R: Read> Read for ReadCountingStream<'a, R> {
     fn read(&mut self, buff: &mut [u8]) -> Result<usize, Error> {
         if buff.len() > self.remaining {
             return Err(Error::new(
@@ -191,7 +191,7 @@ impl PathAttribute {
     /// This function does not make use of unsafe code.
     ///
     pub fn parse(
-        stream: &mut dyn Read,
+        stream: &mut impl Read,
         capabilities: &Capabilities,
     ) -> Result<PathAttribute, Error> {
         let flags = stream.read_u8()?;
@@ -222,7 +222,7 @@ impl PathAttribute {
     }
 
     fn parse_limited(
-        stream: &mut dyn Read,
+        stream: &mut impl Read,
         capabilities: &Capabilities,
         _flags: u8,
         code: u8,
@@ -463,7 +463,7 @@ impl PathAttribute {
     }
 
     /// Encode path attribute to bytes
-    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+    pub fn encode(&self, buf: &mut impl Write) -> Result<(), Error> {
         use PathAttribute::*;
         let mut bytes = Vec::with_capacity(8);
         let (mut flags, identifier) = match self {
@@ -569,7 +569,7 @@ pub enum Origin {
 }
 
 impl Origin {
-    fn parse(stream: &mut dyn Read) -> Result<Origin, Error> {
+    fn parse(stream: &mut impl Read) -> Result<Origin, Error> {
         match stream.read_u8()? {
             0 => Ok(Origin::IGP),
             1 => Ok(Origin::EGP),
@@ -597,7 +597,7 @@ pub struct ASPath {
 }
 
 impl ASPath {
-    fn parse(stream: &mut dyn Read, length: u16, _: &Capabilities) -> Result<ASPath, Error> {
+    fn parse(stream: &mut impl Read, length: u16, _: &Capabilities) -> Result<ASPath, Error> {
         let segments = Segment::parse_unknown_segments(stream, length)?;
         Ok(ASPath { segments })
     }
@@ -632,7 +632,7 @@ impl ASPath {
     }
 
     /// Encode AS Path to bytes
-    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+    pub fn encode(&self, buf: &mut impl Write) -> Result<(), Error> {
         for segment in &self.segments {
             let (path_type, seq) = match segment {
                 Segment::AS_SET(set) => (1u8, set),
@@ -674,7 +674,7 @@ impl Segment {
         asns.iter().any(|a| a > &(std::u16::MAX as u32))
     }
 
-    fn parse_unknown_segments(stream: &mut dyn Read, length: u16) -> Result<Vec<Segment>, Error> {
+    fn parse_unknown_segments(stream: &mut impl Read, length: u16) -> Result<Vec<Segment>, Error> {
         // Read in everything so we can touch the buffer multiple times in order to
         // work out what we have
         let mut buf = vec![0u8; length as usize];
@@ -725,7 +725,7 @@ impl Segment {
         ))
     }
 
-    fn parse_u16_segments(stream: &mut dyn Read, length: u16) -> Result<Vec<Segment>, Error> {
+    fn parse_u16_segments(stream: &mut impl Read, length: u16) -> Result<Vec<Segment>, Error> {
         let mut segments: Vec<Segment> = Vec::with_capacity(1);
 
         // While there are multiple AS_PATH segments, parse the segments.
@@ -762,7 +762,7 @@ impl Segment {
         Ok(segments)
     }
 
-    fn parse_u32_segments(stream: &mut dyn Read, length: u16) -> Result<Vec<Segment>, Error> {
+    fn parse_u32_segments(stream: &mut impl Read, length: u16) -> Result<Vec<Segment>, Error> {
         let mut segments: Vec<Segment> = Vec::with_capacity(1);
 
         // While there are multiple AS_PATH segments, parse the segments.

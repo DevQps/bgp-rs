@@ -33,7 +33,7 @@ impl Update {
     /// docs
     pub fn parse(
         header: &Header,
-        stream: &mut dyn Read,
+        stream: &mut impl Read,
         capabilities: &Capabilities,
     ) -> Result<Update, Error> {
         if header.length < 23 {
@@ -133,7 +133,7 @@ impl Update {
     }
 
     /// Update message to bytes
-    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+    pub fn encode(&self, buf: &mut impl Write) -> Result<(), Error> {
         // Create one buf to reuse for each Update attribute
         let mut temp_buf: Vec<u8> = Vec::with_capacity(8);
 
@@ -284,7 +284,7 @@ impl NLRIEncoding {
     }
 
     /// Encode NLRI to bytes
-    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+    pub fn encode(&self, buf: &mut impl Write) -> Result<(), Error> {
         match self {
             NLRIEncoding::IP(prefix) => {
                 buf.write_u8(prefix.length)?;
@@ -412,7 +412,7 @@ impl Prefix {
         &self.prefix[..self.octet_length()]
     }
 
-    fn parse(stream: &mut dyn Read, protocol: AFI) -> Result<Prefix, Error> {
+    fn parse(stream: &mut impl Read, protocol: AFI) -> Result<Prefix, Error> {
         let length = stream.read_u8()?;
 
         if length

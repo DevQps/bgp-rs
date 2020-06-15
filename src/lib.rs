@@ -247,7 +247,7 @@ pub struct Header {
 
 impl Header {
     /// parse
-    pub fn parse(stream: &mut dyn Read) -> Result<Header, Error> {
+    pub fn parse(stream: &mut impl Read) -> Result<Header, Error> {
         let mut marker = [0u8; 16];
         stream.read_exact(&mut marker)?;
 
@@ -262,7 +262,7 @@ impl Header {
     }
 
     /// Writes self into the stream, including the length and record type.
-    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+    pub fn encode(&self, buf: &mut impl Write) -> Result<(), Error> {
         buf.write_all(&self.marker)?;
         buf.write_u16::<BigEndian>(self.length)?;
         buf.write_u8(self.record_type)
@@ -289,7 +289,7 @@ pub enum Message {
 }
 
 impl Message {
-    fn encode_noheader(&self, buf: &mut dyn Write) -> Result<(), Error> {
+    fn encode_noheader(&self, buf: &mut impl Write) -> Result<(), Error> {
         match self {
             Message::Open(open) => open.encode(buf),
             Message::Update(update) => update.encode(buf),
@@ -300,7 +300,7 @@ impl Message {
     }
 
     /// Writes message into the stream, including the appropriate header.
-    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+    pub fn encode(&self, buf: &mut impl Write) -> Result<(), Error> {
         let mut message_buf: Vec<u8> = Vec::with_capacity(BGP_MIN_MESSAGE_SIZE); // Start with minimum size
         self.encode_noheader(&mut message_buf)?;
         let message_length = message_buf.len();
@@ -338,7 +338,7 @@ pub struct RouteRefresh {
 }
 
 impl RouteRefresh {
-    fn parse(stream: &mut dyn Read) -> Result<RouteRefresh, Error> {
+    fn parse(stream: &mut impl Read) -> Result<RouteRefresh, Error> {
         let afi = AFI::try_from(stream.read_u16::<BigEndian>()?)?;
         let subtype = stream.read_u8()?;
         let safi = SAFI::try_from(stream.read_u8()?)?;
@@ -347,28 +347,47 @@ impl RouteRefresh {
     }
 
     /// Encode RouteRefresh to bytes
-    pub fn encode(&self, buf: &mut dyn Write) -> Result<(), Error> {
+    pub fn encode(&self, buf: &mut impl Write) -> Result<(), Error> {
         buf.write_u16::<BigEndian>(self.afi as u16)?;
         buf.write_u8(self.subtype)?;
         buf.write_u8(self.safi as u8)
     }
 }
 
+/// An abstract way of getting a reference to a Capabilities struct.
+/// This is used in Reader to allow use of either an owned Capabilites or a reference to one.
+pub trait CapabilitiesRef {
+    /// Gets a reference to the Capabilities
+    fn get_ref(&self) -> &Capabilities;
+}
+impl CapabilitiesRef for Capabilities {
+    fn get_ref(&self) -> &Capabilities {
+        self
+    }
+}
+impl<'a> CapabilitiesRef for &'a Capabilities {
+    fn get_ref(&self) -> &Capabilities {
+        self
+    }
+}
+
 /// The BGPReader can read BGP messages from a BGP-formatted stream.
-pub struct Reader<T>
+pub struct Reader<T, C>
 where
     T: Read,
+    C: CapabilitiesRef,
 {
     /// The stream from which BGP messages will be read.
     pub stream: T,
 
     /// Capability parameters that distinguish how BGP messages should be parsed.
-    pub capabilities: Capabilities,
+    pub capabilities: C,
 }
 
-impl<T> Reader<T>
+impl<T, C> Reader<T, C>
 where
     T: Read,
+    C: CapabilitiesRef,
 {
     ///
     /// Reads the next BGP message in the stream.
@@ -400,7 +419,7 @@ where
                 let attribute = Message::Update(Update::parse(
                     &header,
                     &mut self.stream,
-                    &self.capabilities,
+                    self.capabilities.get_ref(),
                 )?);
                 Ok((header, attribute))
             }
@@ -420,7 +439,12 @@ where
             )),
         }
     }
+}
 
+impl<T> Reader<T, Capabilities>
+where
+    T: Read,
+{
     ///
     /// Constructs a BGPReader with default parameters.
     ///
@@ -435,11 +459,11 @@ where
     /// This function does not make use of unsafe code.
     ///
     ///
-    pub fn new(stream: T) -> Reader<T>
+    pub fn new(stream: T) -> Self
     where
         T: Read,
     {
-        Reader::<T> {
+        Reader::<T, Capabilities> {
             stream,
             capabilities: Default::default(),
         }
