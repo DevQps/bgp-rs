@@ -63,7 +63,7 @@ jobs:
         run: cargo build --all-targets --all-features --verbose
 
       - name: Perform unit testing and integration testing
-        run: cargo test --all-targets --all-features
+        run: cargo test --all-targets --all-features -- --ignored
 
       - name: Perform documentation tests
         run: cargo test --doc
@@ -84,7 +84,7 @@ jobs:
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
-          args: "--verbose --all-features --workspace --timeout 1200"
+          args: "--verbose --all-features --workspace --timeout 1200 --ignored --exclude-files *test* --exclude-files *fuzz*"
 
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v1

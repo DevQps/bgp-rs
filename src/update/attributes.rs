@@ -800,3 +800,17 @@ impl Segment {
         Ok(segments)
     }
 }
+
+#[test]
+fn test_read_counter_overflow() {
+    let data: Vec<u8> = (0..10).collect();
+    let length = data.len();
+    let mut buf = std::io::Cursor::new(data);
+    let mut counter = ReadCountingStream {
+        stream: &mut buf,
+        remaining: length,
+    };
+    let mut output = [0u8; 16];
+    // output is longer, so read will overrun
+    assert!(counter.read_exact(&mut output).is_err());
+}

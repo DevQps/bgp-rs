@@ -98,3 +98,43 @@ fn test_notification_display() {
         "OPEN Message Error / 1 Unsupported Capability"
     );
 }
+
+#[test]
+fn test_notification_display_unknown_maj() {
+    let notification = Notification {
+        major_err_code: 9,
+        minor_err_code: 0,
+        data: vec![],
+    };
+    assert_eq!(&notification.to_string(), "Major Code 9 / 0 ");
+}
+
+#[test]
+fn test_notification_parse_no_data() {
+    let header = Header {
+        marker: [0xff; 16],
+        length: 19,
+        record_type: 4,
+    };
+    let mut buf = std::io::Cursor::new(vec![6, 3]);
+    let notification = Notification::parse(&header, &mut buf).expect("Parsing Notification");
+    assert_eq!(notification.major_err_code, 6);
+    assert_eq!(notification.minor_err_code, 3);
+    assert!(notification.data.is_empty());
+}
+
+#[test]
+fn test_notification_parse_with_data() {
+    let mut data = vec![4, 0];
+    data.extend_from_slice(b"Hold Timer Expired");
+    let header = Header {
+        marker: [0xff; 16],
+        length: data.len() as u16 + 19,
+        record_type: 4,
+    };
+    let mut buf = std::io::Cursor::new(data);
+    let notification = Notification::parse(&header, &mut buf).expect("Parsing Notification");
+    assert_eq!(notification.major_err_code, 4);
+    assert_eq!(notification.minor_err_code, 0);
+    assert_eq!(&notification.message().unwrap(), "Hold Timer Expired");
+}

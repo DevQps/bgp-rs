@@ -82,3 +82,49 @@ pub(crate) fn detect_add_path_prefix(cur: &mut Cursor<Vec<u8>>, max_bit_len: u32
     cur.set_position(cursor_init);
     Ok(false)
 }
+
+#[test]
+fn test_with_path_id() {
+    #[rustfmt::skip]
+    let nlri_data = vec![
+        // 5.5.5.5/32 PathId 1
+        0x00, 0x00, 0x00, 0x01, 0x20, 0x05, 0x05, 0x05, 0x05,
+        // 192.168.1.5/32 PathId 1
+        0x00, 0x00, 0x00, 0x01, 0x20, 0xc0, 0xa8, 0x01, 0x05,
+    ];
+    let mut buf = std::io::Cursor::new(nlri_data);
+    let add_path = detect_add_path_prefix(&mut buf, 255).expect("detecting add_path");
+    assert!(add_path);
+}
+
+#[test]
+fn test_without_path_id1() {
+    #[rustfmt::skip]
+    let nlri_data = vec![
+        // 172.17.2.0/24
+        0x18, 0xac, 0x11, 0x02,
+        // 172.17.1.0/24
+        0x18, 0xac, 0x11, 0x01,
+        // 172.17.0.0/24
+        0x18, 0xac, 0x11, 0x00,
+
+    ];
+    let mut buf = std::io::Cursor::new(nlri_data);
+    let add_path = detect_add_path_prefix(&mut buf, 255).expect("detecting add_path");
+    assert!(!add_path);
+}
+
+#[test]
+fn test_without_path_id2() {
+    #[rustfmt::skip]
+    let nlri_data = vec![
+        // 172.17.2.0/24
+        0x18, 0xac, 0x11, 0x02,
+        // 172.17.1.0/24
+        0x18, 0xac, 0x11, 0x01,
+
+    ];
+    let mut buf = std::io::Cursor::new(nlri_data);
+    let add_path = detect_add_path_prefix(&mut buf, 16).expect("detecting add_path");
+    assert!(!add_path);
+}

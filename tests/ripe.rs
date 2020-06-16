@@ -8,6 +8,7 @@ use std::io::Cursor;
 
 // Tests if it is able to parse a stream of BGP4MP messages.
 #[test]
+#[ignore]
 fn parse_updates() {
     // Download an update message.
     let file = File::open("res/mrt/updates.20190101.0000.gz").unwrap();
@@ -42,6 +43,7 @@ fn parse_updates() {
 
 // Tests if it is able to parse a stream of TABLE_DUMP_V2 messages.
 #[test]
+#[ignore]
 fn parse_rib() {
     use bgp_rs::PathAttribute;
     use mrt_rs::tabledump::TABLE_DUMP_V2;
