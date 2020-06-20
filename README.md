@@ -6,7 +6,7 @@ Messages such as UPDATE, OPEN, KEEPALIVE and NOTIFICATION can be read this way.
 
 ## Examples & Documentation
 
-**Reading a MRT file containing BPG messages**
+**Reading a MRT file containing BGP4MP messages**
 ```
 use std::fs::File;
 use std::io::Cursor;
@@ -53,6 +53,8 @@ fn main() {
        }
    }
 ```
+
+**Reading a MRT file containing TABLE_DUMP_V2 messages**
 
 For examples and documentation look [here](https://docs.rs/bgp-rs/).
 
