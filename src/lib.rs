@@ -4,28 +4,25 @@
 //!
 //! # Examples
 //!
-//! ## Reading a MRT file containing BPG messages
+//! ## Reading a MRT file containing BPG4MP messages
 //! ```
 //! use std::fs::File;
 //! use std::io::Cursor;
 //! use std::io::Read;
 //! use std::io::BufReader;
-//! use mrt_rs::Record;
-//! use mrt_rs::bgp4mp::BGP4MP;
 //! use libflate::gzip::Decoder;
 //! use bgp_rs::{Identifier, PathAttribute};
+//! use mrt_rs::Record;
+//! use mrt_rs::bgp4mp::BGP4MP;
 //!
 //! // Download an update message.
 //! let file = File::open("res/mrt/updates.20190101.0000.gz").unwrap();
 //!
 //! // Decode the GZIP stream.
-//! let decoder = Decoder::new(BufReader::new(file)).unwrap();
-//!
-//! // Create a new MRTReader with a Cursor such that we can keep track of the position.
-//! let mut reader = mrt_rs::Reader { stream: decoder };
+//! let mut decoder = Decoder::new(BufReader::new(file)).unwrap();
 //!
 //! // Keep reading MRT (Header, Record) tuples till the end of the file has been reached.
-//! while let Ok(Some((_, record))) = reader.read() {
+//! while let Ok(Some((_, record))) = mrt_rs::read(&mut decoder) {
 //!
 //!     // Extract BGP4MP::MESSAGE_AS4 entries.
 //!     if let Record::BGP4MP(BGP4MP::MESSAGE_AS4(x)) = record {
@@ -50,7 +47,44 @@
 //!     }
 //! }
 //! ```
-
+//!
+//! ## Reading a MRT file containing TABLE_DUMP_V2 messages
+//! ```
+//! use std::fs::File;
+//! use std::io::Cursor;
+//! use std::io::Read;
+//! use std::io::BufReader;
+//! use libflate::gzip::Decoder;
+//! use bgp_rs::{Identifier, PathAttribute, Capabilities};
+//! use mrt_rs::records::tabledump::TABLE_DUMP_V2;
+//! use mrt_rs::Record;
+//! use mrt_rs::bgp4mp::BGP4MP;
+//!
+//! // Download an update message.
+//! let file = File::open("res/mrt/bview.20100101.0759.gz").unwrap();
+//!
+//! // Decode the GZIP stream.
+//! let mut decoder = Decoder::new(BufReader::new(file)).unwrap();
+//!
+//! // Keep reading MRT (Header, Record) tuples till the end of the file has been reached.
+//! while let Ok(Some((_, record))) = mrt_rs::read(&mut decoder) {
+//!
+//!     // Extract TABLE_DUMP_V2::RIB_IPV4_UNICAST entries.
+//!     if let Record::TABLE_DUMP_V2(TABLE_DUMP_V2::RIB_IPV4_UNICAST(x)) = record {
+//!
+//!         // Loop over each route for this particular prefix.
+//!         for mut entry in x.entries {
+//!             let length = entry.attributes.len() as u64;
+//!             let mut cursor = Cursor::new(entry.attributes);
+//!
+//!             // Parse each PathAttribute in each route.
+//!             while cursor.position() < length {
+//!                 PathAttribute::parse(&mut cursor, &Default::default()).unwrap();
+//!             }
+//!         }
+//!     }
+//! }
+//! ```
 /// Contains the OPEN Message implementation
 pub mod open;
 pub use crate::open::*;
