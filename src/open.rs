@@ -463,3 +463,27 @@ impl Capabilities {
         capabilities
     }
 }
+
+#[test]
+fn test_from_empty_parameters() {
+    let caps = Capabilities::from_parameters(vec![]);
+    assert!(caps.MP_BGP_SUPPORT.is_empty());
+    assert!(!caps.ROUTE_REFRESH_SUPPORT);
+    assert!(!caps.FOUR_OCTET_ASN_SUPPORT);
+    assert!(caps.GRACEFUL_RESTART_SUPPORT.is_empty());
+}
+
+#[test]
+fn test_from_parameters() {
+    let params = vec![OpenParameter::Capabilities(vec![
+        OpenCapability::RouteRefresh,
+        OpenCapability::FourByteASN(65000 * 65000),
+        OpenCapability::MultiProtocol((AFI::IPV4, SAFI::Unicast)),
+        OpenCapability::MultiProtocol((AFI::IPV6, SAFI::Unicast)),
+    ])];
+    let caps = Capabilities::from_parameters(params);
+
+    assert!(caps.ROUTE_REFRESH_SUPPORT);
+    assert!(caps.FOUR_OCTET_ASN_SUPPORT);
+    assert_eq!(caps.MP_BGP_SUPPORT.len(), 2);
+}
