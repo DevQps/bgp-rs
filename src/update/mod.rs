@@ -409,6 +409,7 @@ impl Prefix {
     /// Get a slice of the prefix octets covered by the prefix mask
     /// Useful for encoding the prefix in NLRI
     pub fn masked_octets(&self) -> &[u8] {
+        dbg!(&self.octet_length());
         &self.prefix[..self.octet_length()]
     }
 

@@ -184,6 +184,15 @@ impl FragmentOperator {
     }
 }
 
+/// Friendly display for human-redable FragmentOperator
+///
+/// ```
+/// use bgp_rs::flowspec::FragmentOperator;
+/// assert_eq!(&FragmentOperator::DF.to_string(), "Do-Not-Frag ");
+/// assert_eq!(&FragmentOperator::IF.to_string(), "Is Frag");
+/// assert_eq!(&FragmentOperator::FF.to_string(), "First ");
+/// assert_eq!(&FragmentOperator::LF.to_string(), "Last ");
+/// ```
 impl fmt::Display for FragmentOperator {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.contains(FragmentOperator::DF) {
@@ -269,20 +278,19 @@ impl FlowspecFilter {
             Fragment(_) => 12,
         }
     }
-    pub(crate) fn parse(stream: &mut impl Read, afi: AFI) -> Result<Self, Error> {
+
+    /// Parse FlowspecFilter from NLRI bytes
+    pub fn parse(stream: &mut impl Read, afi: AFI) -> Result<Self, Error> {
         let filter_type = stream.read_u8()?;
         match filter_type {
             // Prefix-based filters
             1 | 2 => {
                 let prefix_length = stream.read_u8()?;
-                let prefix_octets = match afi {
-                    AFI::IPV6 => {
-                        let _prefix_offset = stream.read_u8()?;
-                        (f32::from(prefix_length) / 8.0).ceil() as u8
-                    }
-                    AFI::IPV4 => 4u8,
-                    _ => unimplemented!(),
-                };
+                if afi == AFI::IPV6 {
+                    let _prefix_offset = stream.read_u8()?;
+                }
+                let prefix_octets = (f32::from(prefix_length) / 8.0).ceil() as u8;
+                dbg!(&prefix_octets);
                 let mut buf = vec![0u8; prefix_octets as usize];
                 stream.read_exact(&mut buf)?;
                 let prefix = Prefix::new(afi, prefix_length, buf);
@@ -369,6 +377,7 @@ impl FlowspecFilter {
                 if prefix.protocol == AFI::IPV6 {
                     buf.write_u8(0)?; // Ipv6 Offset
                 }
+                dbg!(&prefix.length);
                 buf.write_all(&prefix.masked_octets())?;
             }
             IpProtocol(values)
