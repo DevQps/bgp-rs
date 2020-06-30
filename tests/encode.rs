@@ -1,9 +1,39 @@
 use bgp_rs::*;
+use std::net::IpAddr;
 
 fn encode_as_message(message: Message) -> Vec<u8> {
     let mut data: Vec<u8> = vec![];
     message.encode(&mut data).expect("Encoding message");
     data
+}
+
+#[test]
+fn test_message_too_large() {
+    let mut routes = vec![];
+    for subnet in 0..20 {
+        for host in 0..20 {
+            let addr: IpAddr = format!("2001:{}::{}", subnet, host).parse().unwrap();
+            routes.push(NLRIEncoding::IP((addr, 128).into()));
+        }
+    }
+    let message = Message::Update(Update {
+        withdrawn_routes: vec![],
+        attributes: vec![
+            PathAttribute::ORIGIN(Origin::IGP),
+            PathAttribute::AS_PATH(ASPath {
+                segments: vec![Segment::AS_SEQUENCE(vec![64511])],
+            }),
+            PathAttribute::NEXT_HOP("10.0.14.1".parse().unwrap()),
+            PathAttribute::MULTI_EXIT_DISC(0),
+            PathAttribute::LOCAL_PREF(100),
+            PathAttribute::CLUSTER_LIST(vec![167780868]),
+            PathAttribute::ORIGINATOR_ID(167776001),
+        ],
+        announced_routes: routes,
+    });
+    let mut buf = vec![];
+    let res = message.encode(&mut buf);
+    assert!(res.is_err());
 }
 
 #[test]

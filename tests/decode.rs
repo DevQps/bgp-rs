@@ -2,6 +2,27 @@ use bgp_rs::*;
 use std::net::Ipv4Addr;
 
 #[test]
+fn test_bad_bgp_type() {
+    let mut data = vec![0xff; 16];
+    data.extend_from_slice(&[0, 19, 11]);
+    let buffer = std::io::Cursor::new(data);
+    let mut reader = Reader::new(buffer);
+    let res = reader.read();
+    assert!(res.is_err());
+}
+
+#[test]
+fn test_header_type() {
+    let mut data = vec![0xff; 16];
+    data.extend_from_slice(&[0, 19, 4]);
+    let mut buffer = std::io::Cursor::new(data);
+    let header = Header::parse(&mut buffer).unwrap();
+    assert_eq!(header.marker.len(), 16);
+    assert_eq!(header.length, 19);
+    assert_eq!(header.record_type, 4);
+}
+
+#[test]
 fn test_open_decode() {
     #[rustfmt::skip]
     let data = vec![

@@ -8,14 +8,17 @@ use crate::*;
 /// Represents a BGP Notification message.
 ///
 /// Has display for Major error codes:
+///
 /// ```
 /// use bgp_rs::Notification;
 /// assert_eq!(&(Notification::new(6, 3).to_string()), "Cease / 3 ");
 /// assert_eq!(&(Notification::new(9, 0).to_string()), "Major Code 9 / 0 ");
+/// assert_eq!(&(Notification::new(3, 1).to_string()), "UPDATE Message Error / 1 ");
 /// assert_eq!(
 ///     &(Notification::with_data(2, 1, b"Unsupported Capability".to_vec()).to_string()),
 ///     "OPEN Message Error / 1 Unsupported Capability",
 /// );
+/// assert_eq!(&(Notification::new(5, 2).to_string()), "Finite State Machine / 2 ");
 /// ```
 #[derive(Clone, Debug)]
 pub struct Notification {
@@ -23,7 +26,7 @@ pub struct Notification {
     pub major_err_code: u8,
     /// Minor Error Code [RFC4271]
     pub minor_err_code: u8,
-    /// Notification data
+    /// Notification data as bytes (E.g. "Error Details".as_bytes())
     pub data: Vec<u8>,
 }
 

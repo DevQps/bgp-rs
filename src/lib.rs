@@ -138,9 +138,13 @@ impl AFI {
 /// ```
 /// use std::convert::TryFrom;
 /// use bgp_rs::AFI;
+///
 /// let val = 2u16;
 /// let afi = AFI::try_from(val).unwrap();
 /// assert_eq!(afi, AFI::IPV6);
+///
+/// let bad_afi = AFI::try_from(404);
+/// assert!(bad_afi.is_err());
 /// ```
 impl TryFrom<u16> for AFI {
     type Error = Error;
@@ -212,9 +216,13 @@ pub enum SAFI {
 /// ```
 /// use std::convert::TryFrom;
 /// use bgp_rs::SAFI;
+///
 /// let val = 1u8;
 /// let safi = SAFI::try_from(val).unwrap();
 /// assert_eq!(safi, SAFI::Unicast);
+///
+/// let bad_safi = SAFI::try_from(250);
+/// assert!(bad_safi.is_err());
 /// ```
 impl TryFrom<u8> for SAFI {
     type Error = Error;
@@ -244,8 +252,11 @@ impl TryFrom<u8> for SAFI {
 /// Display SAFI in a human-friendly format
 /// ```
 /// use bgp_rs::SAFI;
-/// let safi = SAFI::Flowspec;
-/// assert_eq!(&safi.to_string(), "Flowspec");
+///
+/// assert_eq!(&(SAFI::Unicast).to_string(), "Unicast");
+/// assert_eq!(&(SAFI::Mpls).to_string(), "MPLS");
+/// assert_eq!(&(SAFI::Vpls).to_string(), "VPLS");
+/// assert_eq!(&(SAFI::Flowspec).to_string(), "Flowspec");
 /// ```
 impl Display for SAFI {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
