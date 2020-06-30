@@ -84,7 +84,7 @@ jobs:
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
-          args: "--verbose --all-features --ignore-tests --timeout 1200 -- --ignored"
+          args: "--verbose --all-features --ignore-tests --run-types Doctests,Tests --timeout 1200"
 
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v1
