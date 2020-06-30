@@ -241,7 +241,7 @@ fn _filter_roundtrip(filter: &FlowspecFilter, afi: AFI) {
         rb
     };
     if original_bytes != roundtrip_bytes {
-        dbg!(&filter);
+        eprintln!("Error roundtripping: {:?}", filter);
         assert_eq!(original_bytes, roundtrip_bytes);
     }
 }

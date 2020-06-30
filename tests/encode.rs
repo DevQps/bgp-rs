@@ -75,6 +75,21 @@ fn test_encode_open() {
     );
 }
 
+#[test]
+fn test_encode_open_too_large() {
+    let capabilities: Vec<_> = (10..100).map(OpenCapability::FourByteASN).collect();
+    let open = Open {
+        version: 4,
+        peer_asn: 65000,
+        hold_timer: 60,
+        identifier: 16843009, // 1.1.1.1
+        parameters: vec![OpenParameter::Capabilities(capabilities)],
+    };
+    let mut data: Vec<u8> = vec![];
+    let res = open.encode(&mut data);
+    assert!(res.is_err());
+}
+
 #[cfg(feature = "flowspec")]
 #[test]
 fn test_encode_open_flowspec() {

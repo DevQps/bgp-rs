@@ -290,7 +290,6 @@ impl FlowspecFilter {
                     let _prefix_offset = stream.read_u8()?;
                 }
                 let prefix_octets = (f32::from(prefix_length) / 8.0).ceil() as u8;
-                dbg!(&prefix_octets);
                 let mut buf = vec![0u8; prefix_octets as usize];
                 stream.read_exact(&mut buf)?;
                 let prefix = Prefix::new(afi, prefix_length, buf);
@@ -377,7 +376,6 @@ impl FlowspecFilter {
                 if prefix.protocol == AFI::IPV6 {
                     buf.write_u8(0)?; // Ipv6 Offset
                 }
-                dbg!(&prefix.length);
                 buf.write_all(&prefix.masked_octets())?;
             }
             IpProtocol(values)

@@ -48,19 +48,19 @@ impl Open {
             length -= bytes_read as i32;
         }
         if length != 0 {
-            return Err(Error::new(
+            Err(Error::new(
                 ErrorKind::InvalidData,
                 "Open length does not match options length",
-            ));
+            ))
+        } else {
+            Ok(Open {
+                version,
+                peer_asn,
+                hold_timer,
+                identifier,
+                parameters,
+            })
         }
-
-        Ok(Open {
-            version,
-            peer_asn,
-            hold_timer,
-            identifier,
-            parameters,
-        })
     }
 
     /// Encode message to bytes
@@ -151,7 +151,6 @@ impl OpenCapability {
     fn parse(stream: &mut impl Read) -> Result<(u16, OpenCapability), Error> {
         let cap_code = stream.read_u8()?;
         let cap_length = stream.read_u8()?;
-
         Ok((
             2 + (cap_length as u16),
             match cap_code {
@@ -187,7 +186,7 @@ impl OpenCapability {
                         ));
                     }
                     let afi = AFI::try_from(stream.read_u16::<BigEndian>()?)?;
-                    let _ = stream.read_u8()?;
+                    let _ = stream.read_u8()?; // Reserved
                     let safi = SAFI::try_from(stream.read_u8()?)?;
                     let count = stream.read_u8()?;
                     let mut types: HashSet<(AFI, SAFI, u8, AddPathDirection)> = HashSet::new();
@@ -256,14 +255,16 @@ impl OpenCapability {
                 cap_buf.write_u8(0)?; // Capability Length
             }
             OpenCapability::OutboundRouteFiltering(orfs) => {
-                let length = orfs.len();
+                cap_buf.write_u8(3)?; // Capability Type
+                let num_of_orfs = orfs.len();
+                cap_buf.write_u8(5 + (num_of_orfs as u8 * 2))?; // Capability Length
                 for (i, orf) in orfs.iter().enumerate() {
                     let (afi, safi, orf_type, orf_direction) = orf;
                     if i == 0 {
                         cap_buf.write_u16::<BigEndian>(*afi as u16)?;
                         cap_buf.write_u8(0)?; // Reserved
                         cap_buf.write_u8(*safi as u8)?;
-                        cap_buf.write_u8(length as u8)?;
+                        cap_buf.write_u8(num_of_orfs as u8)?;
                     }
                     cap_buf.write_u8(*orf_type)?;
                     cap_buf.write_u8(*orf_direction as u8)?;
@@ -464,26 +465,92 @@ impl Capabilities {
     }
 }
 
-#[test]
-fn test_from_empty_parameters() {
-    let caps = Capabilities::from_parameters(vec![]);
-    assert!(caps.MP_BGP_SUPPORT.is_empty());
-    assert!(!caps.ROUTE_REFRESH_SUPPORT);
-    assert!(!caps.FOUR_OCTET_ASN_SUPPORT);
-    assert!(caps.GRACEFUL_RESTART_SUPPORT.is_empty());
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use maplit::hashset;
 
-#[test]
-fn test_from_parameters() {
-    let params = vec![OpenParameter::Capabilities(vec![
-        OpenCapability::RouteRefresh,
-        OpenCapability::FourByteASN(65000 * 65000),
-        OpenCapability::MultiProtocol((AFI::IPV4, SAFI::Unicast)),
-        OpenCapability::MultiProtocol((AFI::IPV6, SAFI::Unicast)),
-    ])];
-    let caps = Capabilities::from_parameters(params);
+    fn _param_roundtrip(param: &OpenParameter) {
+        eprintln!("Testing {:?}", param);
+        let mut bytes = vec![];
+        param.encode(&mut bytes).unwrap();
+        let mut buffer = std::io::Cursor::new(bytes);
+        let (_length, result) = OpenParameter::parse(&mut buffer).unwrap();
 
-    assert!(caps.ROUTE_REFRESH_SUPPORT);
-    assert!(caps.FOUR_OCTET_ASN_SUPPORT);
-    assert_eq!(caps.MP_BGP_SUPPORT.len(), 2);
+        // Now compare bytes for both:
+        let cursor_depth = buffer.position() as usize;
+        // Cursor can add bytes, only take valid bytes
+        let original_bytes = buffer.into_inner()[..cursor_depth].to_vec();
+        let roundtrip_bytes = {
+            let mut rb = vec![];
+            result.encode(&mut rb).unwrap();
+            rb
+        };
+        if original_bytes != roundtrip_bytes {
+            eprintln!("Error roundtripping: {:?}", param);
+            assert_eq!(original_bytes, roundtrip_bytes);
+        }
+    }
+
+    #[test]
+    fn test_parameter_roundtrips() {
+        let params = vec![
+            OpenParameter::Unknown {
+                param_type: 90,
+                param_length: 4,
+                value: vec![0, 1, 2, 3],
+            },
+            OpenParameter::Capabilities(vec![
+                OpenCapability::MultiProtocol((AFI::IPV4, SAFI::Unicast)),
+                OpenCapability::MultiProtocol((AFI::IPV6, SAFI::Unicast)),
+            ]),
+            OpenParameter::Capabilities(vec![OpenCapability::RouteRefresh]),
+            OpenParameter::Capabilities(vec![
+                OpenCapability::FourByteASN(3200000001),
+                OpenCapability::FourByteASN(3200000002),
+            ]),
+            OpenParameter::Capabilities(vec![OpenCapability::AddPath(vec![
+                (AFI::IPV4, SAFI::Unicast, AddPathDirection::SendPaths),
+                (AFI::IPV6, SAFI::Unicast, AddPathDirection::ReceivePaths),
+                (AFI::IPV4, SAFI::Mpls, AddPathDirection::SendReceivePaths),
+                (AFI::IPV6, SAFI::Mpls, AddPathDirection::SendReceivePaths),
+            ])]),
+            // these next two can't be tested in the same test as the order of HashSet
+            // is non-deterministic
+            OpenParameter::Capabilities(vec![OpenCapability::OutboundRouteFiltering(hashset! {
+                (AFI::IPV4, SAFI::Unicast, 10, AddPathDirection::SendPaths),
+            })]),
+            OpenParameter::Capabilities(vec![OpenCapability::OutboundRouteFiltering(hashset! {
+                (AFI::IPV6, SAFI::Unicast, 20, AddPathDirection::SendReceivePaths),
+            })]),
+        ];
+
+        for param in params {
+            _param_roundtrip(&param);
+        }
+    }
+
+    #[test]
+    fn test_from_empty_parameters() {
+        let caps = Capabilities::from_parameters(vec![]);
+        assert!(caps.MP_BGP_SUPPORT.is_empty());
+        assert!(!caps.ROUTE_REFRESH_SUPPORT);
+        assert!(!caps.FOUR_OCTET_ASN_SUPPORT);
+        assert!(caps.GRACEFUL_RESTART_SUPPORT.is_empty());
+    }
+
+    #[test]
+    fn test_from_parameters() {
+        let params = vec![OpenParameter::Capabilities(vec![
+            OpenCapability::RouteRefresh,
+            OpenCapability::FourByteASN(65000 * 65000),
+            OpenCapability::MultiProtocol((AFI::IPV4, SAFI::Unicast)),
+            OpenCapability::MultiProtocol((AFI::IPV6, SAFI::Unicast)),
+        ])];
+        let caps = Capabilities::from_parameters(params);
+
+        assert!(caps.ROUTE_REFRESH_SUPPORT);
+        assert!(caps.FOUR_OCTET_ASN_SUPPORT);
+        assert_eq!(caps.MP_BGP_SUPPORT.len(), 2);
+    }
 }
