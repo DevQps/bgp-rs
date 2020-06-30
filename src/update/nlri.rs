@@ -265,10 +265,10 @@ fn test_parse_nlri_ip_add_path() {
     };
     let result = parse_nlri(AFI::IPV4, SAFI::Unicast, &capabilities, &mut nlri_data, 8).unwrap();
 
-    assert!(matches!(
-        &result[0],
-        NLRIEncoding::IP_WITH_PATH_ID((_prefix, _pathid))
-    ));
+    match &result[0] {
+        NLRIEncoding::IP_WITH_PATH_ID((_prefix, _pathid)) => (),
+        _ => panic!(),
+    }
 }
 
 #[test]
@@ -281,10 +281,10 @@ fn test_parse_nlri_mpls_add_path() {
     };
     let result = parse_nlri(AFI::IPV4, SAFI::Mpls, &capabilities, &mut nlri_data, 11).unwrap();
 
-    assert!(matches!(
-        &result[0],
-        NLRIEncoding::IP_MPLS_WITH_PATH_ID((_prefix, _label, _pathid))
-    ));
+    match &result[0] {
+        NLRIEncoding::IP_MPLS_WITH_PATH_ID((_prefix, _label, _pathid)) => (),
+        _ => panic!(),
+    }
 }
 
 #[test]
@@ -297,10 +297,10 @@ fn test_parse_nlri_mpls() {
     };
     let result = parse_nlri(AFI::IPV4, SAFI::Mpls, &capabilities, &mut nlri_data, 7).unwrap();
 
-    assert!(matches!(
-        &result[0],
-        NLRIEncoding::IP_MPLS((_prefix, _label))
-    ));
+    match &result[0] {
+        NLRIEncoding::IP_MPLS((_prefix, _label)) => (),
+        _ => panic!(),
+    }
 }
 
 #[test]
@@ -310,7 +310,10 @@ fn test_parse_l2vpn() {
     ]);
 
     let result = parse_l2vpn(&mut nlri_data).unwrap();
-    assert!(matches!(&result[0], NLRIEncoding::L2VPN(_)));
+    match &result[0] {
+        NLRIEncoding::L2VPN(_) => (),
+        _ => panic!(),
+    }
 }
 
 #[cfg(feature = "flowspec")]
@@ -326,5 +329,8 @@ fn test_parse_nlri_flowspec() {
     let capabilities = Capabilities::default();
     let result = parse_nlri(AFI::IPV6, SAFI::Flowspec, &capabilities, &mut nlri_data, 39).unwrap();
 
-    assert!(matches!(&result[0], NLRIEncoding::FLOWSPEC(_filters)));
+    match &result[0] {
+        NLRIEncoding::FLOWSPEC(_filters) => (),
+        _ => panic!(),
+    }
 }

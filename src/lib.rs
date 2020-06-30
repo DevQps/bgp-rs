@@ -5,7 +5,8 @@
 //! # Examples
 //!
 //! ## Reading a MRT file containing BPG4MP messages
-//! ```ignore
+//!
+//! ```no_run
 //! use std::fs::File;
 //! use std::io::Cursor;
 //! use std::io::Read;
@@ -49,7 +50,8 @@
 //! ```
 //!
 //! ## Reading a MRT file containing TABLE_DUMP_V2 messages
-//! ```ignore
+//!
+//! ```no_run
 //! use std::fs::File;
 //! use std::io::Cursor;
 //! use std::io::Read;

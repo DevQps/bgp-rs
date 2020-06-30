@@ -6,6 +6,17 @@ use byteorder::{ReadBytesExt, WriteBytesExt};
 use crate::*;
 
 /// Represents a BGP Notification message.
+///
+/// Has display for Major error codes:
+/// ```
+/// use bgp_rs::Notification;
+/// assert_eq!(&(Notification::new(6, 3).to_string()), "Cease / 3 ");
+/// assert_eq!(&(Notification::new(9, 0).to_string()), "Major Code 9 / 0 ");
+/// assert_eq!(
+///     &(Notification::with_data(2, 1, b"Unsupported Capability".to_vec()).to_string()),
+///     "OPEN Message Error / 1 Unsupported Capability",
+/// );
+/// ```
 #[derive(Clone, Debug)]
 pub struct Notification {
     /// Major Error Code [RFC4271]
@@ -17,6 +28,20 @@ pub struct Notification {
 }
 
 impl Notification {
+    /// Create new Notification (without data)
+    pub fn new(major: u8, minor: u8) -> Self {
+        Self::with_data(major, minor, vec![])
+    }
+
+    /// Create new Notification (with data)
+    pub fn with_data(major: u8, minor: u8, data: Vec<u8>) -> Self {
+        Self {
+            major_err_code: major,
+            minor_err_code: minor,
+            data,
+        }
+    }
+
     /// Parse Notification message
     /// Parses the error codes and checks for additional (optional) data
     pub fn parse(header: &Header, stream: &mut impl Read) -> Result<Notification, Error> {
@@ -78,33 +103,4 @@ impl fmt::Display for Notification {
             self.message().unwrap_or_else(|| "".to_string())
         )
     }
-}
-
-#[test]
-fn test_notification_display() {
-    let notification = Notification {
-        major_err_code: 6,
-        minor_err_code: 3,
-        data: vec![],
-    };
-    assert_eq!(&notification.to_string(), "Cease / 3 ");
-    let notification = Notification {
-        major_err_code: 2,
-        minor_err_code: 1,
-        data: b"Unsupported Capability".to_vec(),
-    };
-    assert_eq!(
-        &notification.to_string(),
-        "OPEN Message Error / 1 Unsupported Capability"
-    );
-}
-
-#[test]
-fn test_notification_display_unknown_maj() {
-    let notification = Notification {
-        major_err_code: 9,
-        minor_err_code: 0,
-        data: vec![],
-    };
-    assert_eq!(&notification.to_string(), "Major Code 9 / 0 ");
 }
