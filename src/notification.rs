@@ -15,7 +15,7 @@ use crate::*;
 /// assert_eq!(&(Notification::new(9, 0).to_string()), "Major Code 9 / 0 ");
 /// assert_eq!(&(Notification::new(3, 1).to_string()), "UPDATE Message Error / 1 ");
 /// assert_eq!(
-///     &(Notification::with_data(2, 1, b"Unsupported Capability".to_vec()).to_string()),
+///     &(Notification::from_data(2, 1, b"Unsupported Capability".to_vec()).to_string()),
 ///     "OPEN Message Error / 1 Unsupported Capability",
 /// );
 /// assert_eq!(&(Notification::new(5, 2).to_string()), "Finite State Machine / 2 ");
@@ -33,11 +33,11 @@ pub struct Notification {
 impl Notification {
     /// Create new Notification (without data)
     pub fn new(major: u8, minor: u8) -> Self {
-        Self::with_data(major, minor, vec![])
+        Self::from_data(major, minor, vec![])
     }
 
     /// Create new Notification (with data)
-    pub fn with_data(major: u8, minor: u8, data: Vec<u8>) -> Self {
+    pub fn from_data(major: u8, minor: u8, data: Vec<u8>) -> Self {
         Self {
             major_err_code: major,
             minor_err_code: minor,
