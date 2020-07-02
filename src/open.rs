@@ -465,8 +465,10 @@ impl Capabilities {
     }
 }
 
-#[cfg(tests)]
+#[cfg(test)]
 mod tests {
+    use super::*;
+    use maplit::hashset;
 
     fn _param_roundtrip(param: &OpenParameter) {
         eprintln!("Testing {:?}", param);

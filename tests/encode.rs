@@ -226,6 +226,65 @@ fn test_encode_update_add_path() {
 }
 
 #[test]
+fn test_encode_update_withdraw() {
+    let update = Update {
+        withdrawn_routes: vec![
+            NLRIEncoding::IP(("5.5.5.5".parse().unwrap(), 32).into()),
+            NLRIEncoding::IP(("192.168.1.5".parse().unwrap(), 32).into()),
+        ],
+        attributes: vec![
+            PathAttribute::ORIGIN(Origin::IGP),
+            PathAttribute::AS_PATH(ASPath {
+                segments: vec![Segment::AS_SEQUENCE(vec![64511])],
+            }),
+            PathAttribute::MULTI_EXIT_DISC(0),
+            PathAttribute::LOCAL_PREF(100),
+            // IPv6 withdraw
+            PathAttribute::MP_UNREACH_NLRI(MPUnreachNLRI {
+                afi: AFI::IPV6,
+                safi: SAFI::Unicast,
+                withdrawn_routes: vec![
+                    NLRIEncoding::IP(("3001:10:10::".parse().unwrap(), 56).into()),
+                    NLRIEncoding::IP(("2620:20:20::".parse().unwrap(), 48).into()),
+                ],
+            }),
+        ],
+        announced_routes: vec![],
+    };
+
+    let mut data: Vec<u8> = vec![];
+    update.encode(&mut data).expect("Encoding Update");
+    #[rustfmt::skip]
+    assert_eq!(
+        data,
+        vec![
+            0, 10, // Withdrawn Routes Length
+            32, 5, 5, 5, 5, 32, 192, 168, 1, 5, // Withdrawn prefixes
+            0, 46, // Path Attribute Length
+            64, 1, 1, 0, // ORIGIN
+            64, 2, 4, 2, 1, 251, 255, // AS_PATH
+            128, 4, 4, 0, 0, 0, 0, // MED
+            64, 5, 4, 0, 0, 0, 100, // LOCAL_PREF
+            // MPUnreachNlri
+            128, 15, 18, 0, 2, 1,
+            56, 48, 1, 0, 16, 0, 16, 0,
+            48, 38, 32, 0, 32, 0, 32,
+        ]
+    );
+}
+
+#[test]
+fn test_encode_nlri_ip_vpn_mpls() {
+    let nlri = NLRIEncoding::IP_VPN_MPLS((100, ("5.5.5.5".parse().unwrap(), 32).into(), 3200));
+    let mut data: Vec<u8> = vec![];
+    nlri.encode(&mut data).unwrap();
+    assert_eq!(
+        data,
+        vec![0, 0, 12, 128, 0, 0, 0, 0, 0, 0, 0, 100, 5, 5, 5, 5]
+    );
+}
+
+#[test]
 fn test_encode_keepalive() {
     let keepalive = Message::KeepAlive;
     let mut data: Vec<u8> = vec![];

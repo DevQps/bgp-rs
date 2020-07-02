@@ -6,7 +6,7 @@
 //!
 //! ## Reading a MRT file containing BPG4MP messages
 //!
-//! ```no_run
+//! ```ignore
 //! use std::fs::File;
 //! use std::io::Cursor;
 //! use std::io::Read;
@@ -51,7 +51,7 @@
 //!
 //! ## Reading a MRT file containing TABLE_DUMP_V2 messages
 //!
-//! ```no_run
+//! ```ignore
 //! use std::fs::File;
 //! use std::io::Cursor;
 //! use std::io::Read;
@@ -256,7 +256,13 @@ impl TryFrom<u8> for SAFI {
 /// assert_eq!(&(SAFI::Unicast).to_string(), "Unicast");
 /// assert_eq!(&(SAFI::Mpls).to_string(), "MPLS");
 /// assert_eq!(&(SAFI::Vpls).to_string(), "VPLS");
+/// assert_eq!(&(SAFI::Evpn).to_string(), "EVPN");
+/// assert_eq!(&(SAFI::BgpLs).to_string(), "BGPLS");
+/// assert_eq!(&(SAFI::BgpLsVpn).to_string(), "BGPLSVPN");
+/// assert_eq!(&(SAFI::Rtc).to_string(), "RTC");
+/// assert_eq!(&(SAFI::MplsVpn).to_string(), "MPLS VPN");
 /// assert_eq!(&(SAFI::Flowspec).to_string(), "Flowspec");
+/// assert_eq!(&(SAFI::FlowspecVPN).to_string(), "Flowspec VPN");
 /// ```
 impl Display for SAFI {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {

@@ -47,7 +47,7 @@ fn test_open_decode() {
                 assert_eq!(afi, AFI::IPV6);
                 assert_eq!(safi, SAFI::Unicast);
             }
-            _ => panic!("Should have Param"),
+            _ => unreachable!(),
         },
         _ => panic!("Should have MPBGP Parameter"),
     }
@@ -56,14 +56,14 @@ fn test_open_decode() {
             OpenCapability::FourByteASN(asn) => {
                 assert_eq!(asn, 65000);
             }
-            _ => panic!("Should have Param"),
+            _ => unreachable!(),
         },
         _ => panic!("Should have FourByteASN Parameter"),
     }
     match &open.parameters[2] {
         OpenParameter::Capabilities(caps) => match caps[0] {
             OpenCapability::RouteRefresh => (),
-            _ => panic!("Should have Param"),
+            _ => unreachable!(),
         },
         _ => panic!("Should have FourByteASN Parameter"),
     }
@@ -72,7 +72,7 @@ fn test_open_decode() {
             OpenCapability::Unknown { cap_code, .. } => {
                 assert_eq!(cap_code, 0xf0);
             }
-            _ => panic!("Should have Param"),
+            _ => unreachable!(),
         },
         _ => panic!("Should have Unknown Parameter"),
     }
@@ -124,4 +124,98 @@ fn test_notification_parse_with_data() {
     assert_eq!(notification.major_err_code, 4);
     assert_eq!(notification.minor_err_code, 0);
     assert_eq!(&notification.message().unwrap(), "Hold Timer Expired");
+}
+
+#[test]
+fn test_update_bogus_withdraw_length() {
+    #[rustfmt::skip]
+    let update_data = vec![
+        0, 80, // Withdrawn Routes Length (this is too many bytes)
+        0, 46, // Path Attribute Length
+        64, 1, 1, 0, // ORIGIN
+        64, 2, 4, 2, 1, 251, 255, // AS_PATH
+        64, 3, 4, 10, 0, 14, 1,  // NEXT_HOP
+        128, 4, 4, 0, 0, 0, 0, // MED
+        64, 5, 4, 0, 0, 0, 100, // LOCAL_PREF
+        128, 10, 4, 10, 0, 34, 4, // CLUSTER LIST
+        128, 9, 4, 10, 0, 15, 1, // ORIGINATOR_ID
+        // NLRI
+        0, 0, 0, 1, 32, 5, 5, 5, 5, // 5.5.5.5/32 w/ Path ID 1
+        0, 0, 0, 1, 32, 192, 168, 1, 5   // 192.168.1.5/32 w/ Path ID 1
+    ];
+    let header_length = 19 + update_data.len();
+    let mut buf = std::io::Cursor::new(update_data);
+    let header = Header {
+        marker: [0xff; 16],
+        length: header_length as u16,
+        record_type: 2,
+    };
+    let res = Update::parse(&header, &mut buf, &Capabilities::default());
+    assert!(res.is_err());
+}
+
+#[test]
+fn test_update_bogus_attributes_length() {
+    #[rustfmt::skip]
+    let update_data = vec![
+        0, 0, // Withdrawn Routes Length
+        0, 80, // Path Attribute Length (too many bytes)
+        64, 1, 1, 0, // ORIGIN
+        64, 2, 4, 2, 1, 251, 255, // AS_PATH
+        64, 3, 4, 10, 0, 14, 1,  // NEXT_HOP
+        128, 4, 4, 0, 0, 0, 0, // MED
+        64, 5, 4, 0, 0, 0, 100, // LOCAL_PREF
+        128, 10, 4, 10, 0, 34, 4, // CLUSTER LIST
+        128, 9, 4, 10, 0, 15, 1, // ORIGINATOR_ID
+    ];
+    let header_length = 19 + update_data.len();
+    let mut buf = std::io::Cursor::new(update_data);
+    let header = Header {
+        marker: [0xff; 16],
+        length: header_length as u16,
+        record_type: 2,
+    };
+    let res = Update::parse(&header, &mut buf, &Capabilities::default());
+    assert!(res.is_err());
+}
+
+#[test]
+fn test_update_extended_path_support() {
+    #[rustfmt::skip]
+    let update_data = vec![
+        0, 18, // Withdrawn Routes Length
+        // NLRI
+        0, 0, 0, 1, 32, 5, 5, 5, 5, // 5.5.5.5/32 w/ Path ID 1
+        0, 0, 0, 1, 32, 192, 168, 1, 5,   // 192.168.1.5/32 w/ Path ID 1
+        0, 46, // Path Attribute Length
+        64, 1, 1, 0, // ORIGIN
+        64, 2, 4, 2, 1, 251, 255, // AS_PATH
+        64, 3, 4, 10, 0, 14, 1,  // NEXT_HOP
+        128, 4, 4, 0, 0, 0, 0, // MED
+        64, 5, 4, 0, 0, 0, 100, // LOCAL_PREF
+        128, 10, 4, 10, 0, 34, 4, // CLUSTER LIST
+        128, 9, 4, 10, 0, 15, 1, // ORIGINATOR_ID
+    ];
+    let header_length = 19 + update_data.len();
+    let mut buf = std::io::Cursor::new(update_data);
+    let header = Header {
+        marker: [0xff; 16],
+        length: header_length as u16,
+        record_type: 2,
+    };
+    let capabilities = Capabilities::from_parameters(vec![OpenParameter::Capabilities(vec![
+        OpenCapability::AddPath(vec![(
+            AFI::IPV4,
+            SAFI::Unicast,
+            AddPathDirection::SendReceivePaths,
+        )]),
+    ])]);
+    let update = Update::parse(&header, &mut buf, &capabilities).unwrap();
+    assert_eq!(update.withdrawn_routes.len(), 2);
+    for route in &update.withdrawn_routes {
+        match route {
+            NLRIEncoding::IP_WITH_PATH_ID(_) => (),
+            _ => panic!("Expected Path ID"),
+        }
+    }
 }

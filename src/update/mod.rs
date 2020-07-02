@@ -454,3 +454,11 @@ fn test_prefix_masked_octets() {
     assert_eq!(prefix.masked_octets(), &[1, 1, 1]);
     assert_eq!(&prefix.to_string(), "1.1.1.1/18");
 }
+
+#[test]
+fn test_prefix_bad_length() {
+    let mut buf = std::io::Cursor::new(vec![35, 5, 5, 5, 5]);
+    assert!(Prefix::parse(&mut buf, AFI::IPV4).is_err());
+    let mut buf = std::io::Cursor::new(vec![145, 48, 1, 0, 16, 0, 16, 0]);
+    assert!(Prefix::parse(&mut buf, AFI::IPV6).is_err());
+}
