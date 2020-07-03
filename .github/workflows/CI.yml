@@ -73,23 +73,24 @@ jobs:
     name: Code Coverage
     runs-on: "ubuntu-latest"
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
-
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v1
+      # Use stable for this to ensure that cargo-tarpaulin can be built.
+      - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
-
       - name: Install cargo-tarpaulin
-        run: "cargo install cargo-tarpaulin -f"
-
-      - name: Run cargo-tarpaulin
-        run: "cargo tarpaulin --out Xml --verbose --all-features --run-types Tests,Doctests --ignored --exclude-files fuzz --timeout 1200"
-
-      - name: Upload to codecov.io
-        uses: codecov/codecov-action@v1
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: cargo-tarpaulin
+      - name: Generate coverage report
+        uses: actions-rs/cargo@v1
+        with:
+          command: tarpaulin
+          args: --out Xml --verbose --all-features --run-types Tests,Doctests --ignored --exclude-files fuzz --timeout 1200
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v1.0.3
 
   fuzzing:
     name: Fuzzing
