@@ -63,7 +63,8 @@ jobs:
         run: cargo build --all-targets --all-features --verbose
 
       - name: Perform unit testing and integration testing
-        run: cargo test --all-targets --all-features
+        # --ignored runs *only* ignored tests, so this is the way to run all tests
+        run: cargo test --all-targets --all-features && cargo test --all-targets --all-features -- --ignored
 
       - name: Perform documentation tests
         run: cargo test --doc
@@ -72,22 +73,24 @@ jobs:
     name: Code Coverage
     runs-on: "ubuntu-latest"
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
-
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v1
+      # Use stable for this to ensure that cargo-tarpaulin can be built.
+      - uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: nightly
           override: true
-
-      - name: Run cargo-tarpaulin
-        uses: actions-rs/tarpaulin@v0.1
+      - name: Install cargo-tarpaulin
+        uses: actions-rs/cargo@v1
         with:
-          args: "--verbose --all-features --workspace --timeout 1200"
-
-      - name: Upload to codecov.io
-        uses: codecov/codecov-action@v1
+          command: install
+          args: cargo-tarpaulin
+      - name: Generate coverage report
+        uses: actions-rs/cargo@v1
+        with:
+          command: tarpaulin
+          args: --out Xml --verbose --all-features --run-types Tests,Doctests --ignored --exclude-files fuzz --timeout 1200
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v1.0.3
 
   fuzzing:
     name: Fuzzing

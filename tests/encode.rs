@@ -1,9 +1,39 @@
 use bgp_rs::*;
+use std::net::IpAddr;
 
 fn encode_as_message(message: Message) -> Vec<u8> {
     let mut data: Vec<u8> = vec![];
     message.encode(&mut data).expect("Encoding message");
     data
+}
+
+#[test]
+fn test_message_too_large() {
+    let mut routes = vec![];
+    for subnet in 0..20 {
+        for host in 0..20 {
+            let addr: IpAddr = format!("2001:{}::{}", subnet, host).parse().unwrap();
+            routes.push(NLRIEncoding::IP((addr, 128).into()));
+        }
+    }
+    let message = Message::Update(Update {
+        withdrawn_routes: vec![],
+        attributes: vec![
+            PathAttribute::ORIGIN(Origin::IGP),
+            PathAttribute::AS_PATH(ASPath {
+                segments: vec![Segment::AS_SEQUENCE(vec![64511])],
+            }),
+            PathAttribute::NEXT_HOP("10.0.14.1".parse().unwrap()),
+            PathAttribute::MULTI_EXIT_DISC(0),
+            PathAttribute::LOCAL_PREF(100),
+            PathAttribute::CLUSTER_LIST(vec![167780868]),
+            PathAttribute::ORIGINATOR_ID(167776001),
+        ],
+        announced_routes: routes,
+    });
+    let mut buf = vec![];
+    let res = message.encode(&mut buf);
+    assert!(res.is_err());
 }
 
 #[test]
@@ -43,6 +73,21 @@ fn test_encode_open() {
         message_data[16..19],
         [0, 49, 1][..],
     );
+}
+
+#[test]
+fn test_encode_open_too_large() {
+    let capabilities: Vec<_> = (10..100).map(OpenCapability::FourByteASN).collect();
+    let open = Open {
+        version: 4,
+        peer_asn: 65000,
+        hold_timer: 60,
+        identifier: 16843009, // 1.1.1.1
+        parameters: vec![OpenParameter::Capabilities(capabilities)],
+    };
+    let mut data: Vec<u8> = vec![];
+    let res = open.encode(&mut data);
+    assert!(res.is_err());
 }
 
 #[cfg(feature = "flowspec")]
@@ -177,6 +222,65 @@ fn test_encode_update_add_path() {
     assert_eq!(
         message_data[16..19],
         [0, 87, 2][..],
+    );
+}
+
+#[test]
+fn test_encode_update_withdraw() {
+    let update = Update {
+        withdrawn_routes: vec![
+            NLRIEncoding::IP(("5.5.5.5".parse().unwrap(), 32).into()),
+            NLRIEncoding::IP(("192.168.1.5".parse().unwrap(), 32).into()),
+        ],
+        attributes: vec![
+            PathAttribute::ORIGIN(Origin::IGP),
+            PathAttribute::AS_PATH(ASPath {
+                segments: vec![Segment::AS_SEQUENCE(vec![64511])],
+            }),
+            PathAttribute::MULTI_EXIT_DISC(0),
+            PathAttribute::LOCAL_PREF(100),
+            // IPv6 withdraw
+            PathAttribute::MP_UNREACH_NLRI(MPUnreachNLRI {
+                afi: AFI::IPV6,
+                safi: SAFI::Unicast,
+                withdrawn_routes: vec![
+                    NLRIEncoding::IP(("3001:10:10::".parse().unwrap(), 56).into()),
+                    NLRIEncoding::IP(("2620:20:20::".parse().unwrap(), 48).into()),
+                ],
+            }),
+        ],
+        announced_routes: vec![],
+    };
+
+    let mut data: Vec<u8> = vec![];
+    update.encode(&mut data).expect("Encoding Update");
+    #[rustfmt::skip]
+    assert_eq!(
+        data,
+        vec![
+            0, 10, // Withdrawn Routes Length
+            32, 5, 5, 5, 5, 32, 192, 168, 1, 5, // Withdrawn prefixes
+            0, 46, // Path Attribute Length
+            64, 1, 1, 0, // ORIGIN
+            64, 2, 4, 2, 1, 251, 255, // AS_PATH
+            128, 4, 4, 0, 0, 0, 0, // MED
+            64, 5, 4, 0, 0, 0, 100, // LOCAL_PREF
+            // MPUnreachNlri
+            128, 15, 18, 0, 2, 1,
+            56, 48, 1, 0, 16, 0, 16, 0,
+            48, 38, 32, 0, 32, 0, 32,
+        ]
+    );
+}
+
+#[test]
+fn test_encode_nlri_ip_vpn_mpls() {
+    let nlri = NLRIEncoding::IP_VPN_MPLS((100, ("5.5.5.5".parse().unwrap(), 32).into(), 3200));
+    let mut data: Vec<u8> = vec![];
+    nlri.encode(&mut data).unwrap();
+    assert_eq!(
+        data,
+        vec![0, 0, 12, 128, 0, 0, 0, 0, 0, 0, 0, 100, 5, 5, 5, 5]
     );
 }
 

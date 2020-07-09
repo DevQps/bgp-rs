@@ -6,17 +6,45 @@ use byteorder::{ReadBytesExt, WriteBytesExt};
 use crate::*;
 
 /// Represents a BGP Notification message.
+///
+/// Has display for Major error codes:
+///
+/// ```
+/// use bgp_rs::Notification;
+/// assert_eq!(&(Notification::new(6, 3).to_string()), "Cease / 3 ");
+/// assert_eq!(&(Notification::new(9, 0).to_string()), "Major Code 9 / 0 ");
+/// assert_eq!(&(Notification::new(3, 1).to_string()), "UPDATE Message Error / 1 ");
+/// assert_eq!(
+///     &(Notification::from_data(2, 1, b"Unsupported Capability".to_vec()).to_string()),
+///     "OPEN Message Error / 1 Unsupported Capability",
+/// );
+/// assert_eq!(&(Notification::new(5, 2).to_string()), "Finite State Machine / 2 ");
+/// ```
 #[derive(Clone, Debug)]
 pub struct Notification {
     /// Major Error Code [RFC4271]
     pub major_err_code: u8,
     /// Minor Error Code [RFC4271]
     pub minor_err_code: u8,
-    /// Notification data
+    /// Notification data as bytes (E.g. "Error Details".as_bytes())
     pub data: Vec<u8>,
 }
 
 impl Notification {
+    /// Create new Notification (without data)
+    pub fn new(major: u8, minor: u8) -> Self {
+        Self::from_data(major, minor, vec![])
+    }
+
+    /// Create new Notification (with data)
+    pub fn from_data(major: u8, minor: u8, data: Vec<u8>) -> Self {
+        Self {
+            major_err_code: major,
+            minor_err_code: minor,
+            data,
+        }
+    }
+
     /// Parse Notification message
     /// Parses the error codes and checks for additional (optional) data
     pub fn parse(header: &Header, stream: &mut impl Read) -> Result<Notification, Error> {
@@ -78,23 +106,4 @@ impl fmt::Display for Notification {
             self.message().unwrap_or_else(|| "".to_string())
         )
     }
-}
-
-#[test]
-fn test_notification_display() {
-    let notification = Notification {
-        major_err_code: 6,
-        minor_err_code: 3,
-        data: vec![],
-    };
-    assert_eq!(&notification.to_string(), "Cease / 3 ");
-    let notification = Notification {
-        major_err_code: 2,
-        minor_err_code: 1,
-        data: b"Unsupported Capability".to_vec(),
-    };
-    assert_eq!(
-        &notification.to_string(),
-        "OPEN Message Error / 1 Unsupported Capability"
-    );
 }

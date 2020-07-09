@@ -1,13 +1,9 @@
-#[cfg(feature = "flowspec")]
-use bgp_rs::flowspec::{FlowspecFilter, NumericOperator};
-#[cfg(feature = "flowspec")]
+#![cfg(feature = "flowspec")]
+use bgp_rs::flowspec::{BinaryOperator, FlowspecFilter, NumericOperator};
 use bgp_rs::{Identifier, Message, NLRIEncoding, PathAttribute, AFI, SAFI};
-
 mod common;
-#[cfg(feature = "flowspec")]
 use common::parse::{parse_pcap_messages, transform_u64_to_bytes};
 
-#[cfg(feature = "flowspec")]
 #[test]
 fn test_flowspec_v6() {
     let updates: Vec<_> = parse_pcap_messages("res/pcap/BGP_flowspec_v6.cap")
@@ -61,7 +57,6 @@ fn test_flowspec_v6() {
     }
 }
 
-#[cfg(feature = "flowspec")]
 #[test]
 fn test_flowspec_v6_redirect() {
     let updates: Vec<_> = parse_pcap_messages("res/pcap/BGP_flowspec_redirect.cap")
@@ -113,7 +108,6 @@ fn test_flowspec_v6_redirect() {
     }
 }
 
-#[cfg(feature = "flowspec")]
 #[test]
 fn test_flowspec_dscp() {
     let updates: Vec<_> = parse_pcap_messages("res/pcap/BGP_flowspec_dscp.cap")
@@ -146,7 +140,6 @@ fn test_flowspec_dscp() {
     }
 }
 
-#[cfg(feature = "flowspec")]
 #[test]
 fn test_flowspec_v4() {
     let updates: Vec<_> = parse_pcap_messages("res/pcap/BGP_flowspec_v4.cap")
@@ -220,5 +213,49 @@ fn test_flowspec_v4() {
             }
         }
         _ => panic!("MP_REACH_NLRI not present"),
+    }
+}
+
+fn _filter_roundtrip(filter: &FlowspecFilter, afi: AFI) {
+    eprintln!("Testing {}", filter);
+    let mut bytes = vec![];
+    filter.encode(&mut bytes).unwrap();
+    let mut buffer = std::io::Cursor::new(bytes);
+    let result = FlowspecFilter::parse(&mut buffer, afi).unwrap();
+    // Now compare bytes for both:
+
+    let cursor_depth = buffer.position() as usize;
+    // Cursor can add bytes, only take valid bytes
+    let original_bytes = buffer.into_inner()[..cursor_depth].to_vec();
+    let roundtrip_bytes = {
+        let mut rb = vec![];
+        result.encode(&mut rb).unwrap();
+        rb
+    };
+    if original_bytes != roundtrip_bytes {
+        eprintln!("Error roundtripping: {:?}", filter);
+        assert_eq!(original_bytes, roundtrip_bytes);
+    }
+}
+
+#[test]
+fn test_filter_roundtrips() {
+    let filters = vec![
+        FlowspecFilter::DestinationPrefix(("192.168.0.0".parse().unwrap(), 16).into()),
+        FlowspecFilter::DestinationPrefix(("2620:10:20::".parse().unwrap(), 64).into()),
+        FlowspecFilter::SourcePrefix(("192.168.0.0".parse().unwrap(), 16).into()),
+        FlowspecFilter::SourcePrefix(("2620:10:20::".parse().unwrap(), 64).into()),
+        FlowspecFilter::IpProtocol(vec![(NumericOperator::EQ, 80), (NumericOperator::EQ, 8080)]),
+        FlowspecFilter::Port(vec![(NumericOperator::GT, 80), (NumericOperator::LT, 8080)]),
+        FlowspecFilter::DestinationPort(vec![(NumericOperator::EQ, 443)]),
+        FlowspecFilter::SourcePort(vec![(NumericOperator::EQ, 22)]),
+        FlowspecFilter::IcmpType(vec![(NumericOperator::EQ, 2), (NumericOperator::EQ, 1)]),
+        FlowspecFilter::IcmpCode(vec![(NumericOperator::EQ, 2), (NumericOperator::EQ, 1)]),
+        FlowspecFilter::TcpFlags(vec![(BinaryOperator::MATCH, 2), (BinaryOperator::NOT, 8)]),
+        FlowspecFilter::PacketLength(vec![(NumericOperator::LT, 64), (NumericOperator::GT, 1500)]),
+    ];
+
+    for filter in filters {
+        _filter_roundtrip(&filter, AFI::IPV4);
     }
 }

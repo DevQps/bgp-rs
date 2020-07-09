@@ -5,7 +5,8 @@
 //! # Examples
 //!
 //! ## Reading a MRT file containing BPG4MP messages
-//! ```
+//!
+//! ```ignore
 //! use std::fs::File;
 //! use std::io::Cursor;
 //! use std::io::Read;
@@ -49,7 +50,8 @@
 //! ```
 //!
 //! ## Reading a MRT file containing TABLE_DUMP_V2 messages
-//! ```
+//!
+//! ```ignore
 //! use std::fs::File;
 //! use std::io::Cursor;
 //! use std::io::Read;
@@ -136,9 +138,13 @@ impl AFI {
 /// ```
 /// use std::convert::TryFrom;
 /// use bgp_rs::AFI;
+///
 /// let val = 2u16;
 /// let afi = AFI::try_from(val).unwrap();
 /// assert_eq!(afi, AFI::IPV6);
+///
+/// let bad_afi = AFI::try_from(404);
+/// assert!(bad_afi.is_err());
 /// ```
 impl TryFrom<u16> for AFI {
     type Error = Error;
@@ -210,9 +216,13 @@ pub enum SAFI {
 /// ```
 /// use std::convert::TryFrom;
 /// use bgp_rs::SAFI;
+///
 /// let val = 1u8;
 /// let safi = SAFI::try_from(val).unwrap();
 /// assert_eq!(safi, SAFI::Unicast);
+///
+/// let bad_safi = SAFI::try_from(250);
+/// assert!(bad_safi.is_err());
 /// ```
 impl TryFrom<u8> for SAFI {
     type Error = Error;
@@ -242,8 +252,17 @@ impl TryFrom<u8> for SAFI {
 /// Display SAFI in a human-friendly format
 /// ```
 /// use bgp_rs::SAFI;
-/// let safi = SAFI::Flowspec;
-/// assert_eq!(&safi.to_string(), "Flowspec");
+///
+/// assert_eq!(&(SAFI::Unicast).to_string(), "Unicast");
+/// assert_eq!(&(SAFI::Mpls).to_string(), "MPLS");
+/// assert_eq!(&(SAFI::Vpls).to_string(), "VPLS");
+/// assert_eq!(&(SAFI::Evpn).to_string(), "EVPN");
+/// assert_eq!(&(SAFI::BgpLs).to_string(), "BGPLS");
+/// assert_eq!(&(SAFI::BgpLsVpn).to_string(), "BGPLSVPN");
+/// assert_eq!(&(SAFI::Rtc).to_string(), "RTC");
+/// assert_eq!(&(SAFI::MplsVpn).to_string(), "MPLS VPN");
+/// assert_eq!(&(SAFI::Flowspec).to_string(), "Flowspec");
+/// assert_eq!(&(SAFI::FlowspecVPN).to_string(), "Flowspec VPN");
 /// ```
 impl Display for SAFI {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
