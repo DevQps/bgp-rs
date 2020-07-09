@@ -225,7 +225,7 @@ impl OpenCapability {
                     }
 
                     OpenCapability::MultipleLabels(set)
-                },
+                }
                 // 4_BYTE_ASN
                 65 => {
                     if cap_length != 4 {
@@ -478,7 +478,9 @@ impl Capabilities {
                         }
                         OpenCapability::MultipleLabels(multi_labels) => {
                             for (afi, safi, count) in multi_labels {
-                                capabilities.MULTIPLE_LABELS_SUPPORT.insert((afi, safi), count);
+                                capabilities
+                                    .MULTIPLE_LABELS_SUPPORT
+                                    .insert((afi, safi), count);
                             }
                         }
                         OpenCapability::FourByteASN(_) => {
