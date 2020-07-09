@@ -93,7 +93,7 @@ impl MPUnreachNLRI {
         stream: &mut impl Read,
         length: u16,
         capabilities: &Capabilities,
-    ) -> Result<MPUnreachNLRI, Error> {
+    ) -> io::Result<MPUnreachNLRI> {
         let afi = AFI::try_from(stream.read_u16::<BigEndian>()?)?;
         let safi = SAFI::try_from(stream.read_u8()?)?;
 
