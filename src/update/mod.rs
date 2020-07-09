@@ -64,7 +64,7 @@ impl Update {
         let mut withdrawn_routes: Vec<NLRIEncoding> = Vec::with_capacity(0);
         let mut cursor = Cursor::new(buffer);
 
-        if capabilities.EXTENDED_PATH_NLRI_SUPPORT {
+        if util::detect_add_path_prefix(&mut cursor, 255)? {
             while cursor.position() < withdraw_len as u64 {
                 let path_id = cursor.read_u32::<BigEndian>()?;
                 let prefix = Prefix::parse(&mut cursor, AFI::IPV4)?;

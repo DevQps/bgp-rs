@@ -93,7 +93,7 @@ impl MPUnreachNLRI {
         stream: &mut impl Read,
         length: u16,
         capabilities: &Capabilities,
-    ) -> io::Result<MPUnreachNLRI> {
+    ) -> Result<MPUnreachNLRI, Error> {
         let afi = AFI::try_from(stream.read_u16::<BigEndian>()?)?;
         let safi = SAFI::try_from(stream.read_u8()?)?;
 
@@ -147,7 +147,7 @@ fn parse_l2vpn(buf: &mut impl Read) -> io::Result<Vec<NLRIEncoding>> {
 fn parse_nlri(
     afi: AFI,
     safi: SAFI,
-    capabilities: &Capabilities,
+    _capabilities: &Capabilities,
     buf: &mut Cursor<Vec<u8>>,
     size: u16,
 ) -> io::Result<Vec<NLRIEncoding>> {
@@ -172,7 +172,7 @@ fn parse_nlri(
             }
             // DEFAULT
             _ => {
-                if capabilities.EXTENDED_PATH_NLRI_SUPPORT {
+                if util::detect_add_path_prefix(buf, 255)? {
                     while buf.position() < u64::from(size) {
                         let path_id = buf.read_u32::<BigEndian>()?;
                         let prefix = Prefix::parse(buf, afi)?;
