@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
-use std::io::{Error, ErrorKind, Read, Write};
+use std::io::{Cursor, Error, ErrorKind, Read, Write};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
@@ -130,10 +130,12 @@ pub enum OpenCapability {
     RouteRefresh,
     /// 3 - Support for Outbound Route Filtering of specified AFI/SAFIs
     OutboundRouteFiltering(HashSet<(AFI, SAFI, u8, AddPathDirection)>),
+    /// 8 - Multiple Labels
+    MultipleLabels(HashSet<(AFI, SAFI, u8)>),
     /// 65 - Indicates the speaker supports 4 byte ASNs and includes the ASN of the speaker.
     FourByteASN(u32),
     /// 69 - Indicates the speaker supports sending/receiving multiple paths for a given prefix.
-    AddPath(Vec<(AFI, SAFI, AddPathDirection)>),
+    AddPath(HashSet<(AFI, SAFI, AddPathDirection)>),
     /// Unknown (or unsupported) capability
     Unknown {
         /// The type of the capability.
@@ -200,6 +202,30 @@ impl OpenCapability {
                     }
                     OpenCapability::OutboundRouteFiltering(types)
                 }
+                // MULTIPLE_LABELS
+                8 => {
+                    if cap_length % 4 != 0 {
+                        return Err(Error::new(
+                            ErrorKind::InvalidData,
+                            "Multiple Labels capability must be multiple of 4 bytes in length",
+                        ));
+                    }
+
+                    let mut buffer = vec![0; usize::from(cap_length)];
+                    stream.read_exact(&mut buffer)?;
+                    let mut cursor = Cursor::new(buffer);
+
+                    let mut set = HashSet::new();
+                    while cursor.position() < u64::from(cap_length) {
+                        let afi = AFI::try_from(cursor.read_u16::<BigEndian>()?)?;
+                        let safi = SAFI::try_from(cursor.read_u8()?)?;
+                        let count = cursor.read_u8()?;
+
+                        set.insert((afi, safi, count));
+                    }
+
+                    OpenCapability::MultipleLabels(set)
+                },
                 // 4_BYTE_ASN
                 65 => {
                     if cap_length != 4 {
@@ -217,9 +243,9 @@ impl OpenCapability {
                             "ADD-PATH capability length must be divisble by 4",
                         ));
                     }
-                    let mut add_paths = Vec::with_capacity(cap_length as usize / 4);
+                    let mut add_paths = HashSet::new();
                     for _ in 0..(cap_length / 4) {
-                        add_paths.push((
+                        add_paths.insert((
                             AFI::try_from(stream.read_u16::<BigEndian>()?)?,
                             SAFI::try_from(stream.read_u8()?)?,
                             AddPathDirection::try_from(stream.read_u8()?)?,
@@ -268,6 +294,13 @@ impl OpenCapability {
                     }
                     cap_buf.write_u8(*orf_type)?;
                     cap_buf.write_u8(*orf_direction as u8)?;
+                }
+            }
+            OpenCapability::MultipleLabels(multi_labels) => {
+                for (afi, safi, count) in multi_labels.iter() {
+                    cap_buf.write_u16::<BigEndian>(*afi as u16)?;
+                    cap_buf.write_u8(*safi as u8)?;
+                    cap_buf.write_u8(*count as u8)?;
                 }
             }
             OpenCapability::FourByteASN(asn) => {
@@ -442,6 +475,11 @@ impl Capabilities {
                         }
                         OpenCapability::OutboundRouteFiltering(families) => {
                             capabilities.OUTBOUND_ROUTE_FILTERING_SUPPORT = families;
+                        }
+                        OpenCapability::MultipleLabels(multi_labels) => {
+                            for (afi, safi, count) in multi_labels {
+                                capabilities.MULTIPLE_LABELS_SUPPORT.insert((afi, safi), count);
+                            }
                         }
                         OpenCapability::FourByteASN(_) => {
                             capabilities.FOUR_OCTET_ASN_SUPPORT = true;
