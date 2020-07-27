@@ -64,14 +64,12 @@ impl Update {
         let mut withdrawn_routes: Vec<NLRIEncoding> = Vec::with_capacity(0);
         let mut cursor = Cursor::new(buffer);
 
-        if util::detect_add_path_prefix(&mut cursor, 255)? {
-            while cursor.position() < withdraw_len as u64 {
+        while cursor.position() < withdraw_len as u64 {
+            if util::detect_add_path_prefix(&mut cursor, 255)? {
                 let path_id = cursor.read_u32::<BigEndian>()?;
                 let prefix = Prefix::parse(&mut cursor, AFI::IPV4)?;
                 withdrawn_routes.push(NLRIEncoding::IP_WITH_PATH_ID((prefix, path_id)));
-            }
-        } else {
-            while cursor.position() < withdraw_len as u64 {
+            } else {
                 withdrawn_routes.push(NLRIEncoding::IP(Prefix::parse(&mut cursor, AFI::IPV4)?));
             }
         }

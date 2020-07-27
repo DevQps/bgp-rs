@@ -172,14 +172,12 @@ fn parse_nlri(
             }
             // DEFAULT
             _ => {
-                if util::detect_add_path_prefix(buf, 255)? {
-                    while buf.position() < u64::from(size) {
+                while buf.position() < u64::from(size) {
+                    if util::detect_add_path_prefix(buf, 255)? {
                         let path_id = buf.read_u32::<BigEndian>()?;
                         let prefix = Prefix::parse(buf, afi)?;
                         nlri.push(NLRIEncoding::IP_WITH_PATH_ID((prefix, path_id)));
-                    }
-                } else {
-                    while buf.position() < u64::from(size) {
+                    } else {
                         let prefix = Prefix::parse(buf, afi)?;
                         nlri.push(NLRIEncoding::IP(prefix));
                     }
