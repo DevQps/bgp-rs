@@ -855,6 +855,7 @@ impl Segment {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use maplit::hashset;
 
     // Macro to make building a new `Prefix` easier
     //
@@ -976,11 +977,9 @@ mod tests {
                     ],
                 }),
                 Some(Capabilities::from_parameters(vec![
-                    OpenParameter::Capabilities(vec![OpenCapability::AddPath(vec![(
-                        AFI::IPV4,
-                        SAFI::Unicast,
-                        AddPathDirection::SendReceivePaths,
-                    )])]),
+                    OpenParameter::Capabilities(vec![OpenCapability::AddPath(hashset! {
+                        (AFI::IPV4, SAFI::Unicast, AddPathDirection::SendReceivePaths)
+                    })]),
                 ])),
             ),
             (

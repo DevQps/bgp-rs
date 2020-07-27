@@ -60,10 +60,11 @@ fn test_encode_open() {
             0xfd, 0xe8, // ASN
             0, 0x3c, // Hold Timer
             0x01, 0x01, 0x01, 0x01, // Identifier
-            20, // Parameter Length
-            0x02, 0x06, 0x01, 0x04, 0x00, 0x02, 0x00, 0x01, // IPv6 - Unicast
-            0x02, 0x06, 0x41, 0x04, 0x00, 0x00, 0xfd, 0xe8, // 4-byte ASN
-            0x02, 0x02, 0x02, 0x00 // Route Refresh
+            16, // Length of Parameters
+            0x02, 14, // Parameter type (Capability) and length
+            0x01, 0x04, 0x00, 0x02, 0x00, 0x01, // IPv6 - Unicast
+            0x41, 0x04, 0x00, 0x00, 0xfd, 0xe8, // 4-byte ASN
+            0x02, 0x00 // Route Refresh
         ]
     );
 
@@ -71,7 +72,7 @@ fn test_encode_open() {
     #[rustfmt::skip]
     assert_eq!(
         message_data[16..19],
-        [0, 49, 1][..],
+        [0, 45, 1][..],
     );
 }
 

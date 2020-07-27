@@ -1,4 +1,5 @@
 use bgp_rs::*;
+use maplit::hashset;
 use std::net::Ipv4Addr;
 
 #[test]
@@ -204,11 +205,9 @@ fn test_update_extended_path_support() {
         record_type: 2,
     };
     let capabilities = Capabilities::from_parameters(vec![OpenParameter::Capabilities(vec![
-        OpenCapability::AddPath(vec![(
-            AFI::IPV4,
-            SAFI::Unicast,
-            AddPathDirection::SendReceivePaths,
-        )]),
+        OpenCapability::AddPath(hashset! {
+            (AFI::IPV4, SAFI::Unicast, AddPathDirection::SendReceivePaths)
+        }),
     ])]);
     let update = Update::parse(&header, &mut buf, &capabilities).unwrap();
     assert_eq!(update.withdrawn_routes.len(), 2);

@@ -122,7 +122,7 @@ impl TryFrom<u8> for AddPathDirection {
 }
 
 /// Represents a known capability held in an OpenParameter
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum OpenCapability {
     /// 1 - Indicates the speaker is willing to exchange multiple protocols over this session.
     MultiProtocol((AFI, SAFI)),
@@ -336,14 +336,13 @@ impl OpenCapability {
                 cap_buf.write_all(&value)?;
             }
         }
-        buf.write_u8(2)?; // Parameter Type
-        buf.write_u8(cap_buf.len() as u8)?;
+
         buf.write_all(&cap_buf)
     }
 }
 
 /// Represents a parameter in the optional parameter section of an Open message.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OpenParameter {
     /// A list of capabilities supported by the sender.
     Capabilities(Vec<OpenCapability>),
@@ -366,13 +365,17 @@ impl OpenParameter {
         let param_type = stream.read_u8()?;
         let param_length = stream.read_u8()?;
 
+        let mut buffer = vec![0; usize::from(param_length)];
+        stream.read_exact(&mut buffer)?;
+        let mut cursor = Cursor::new(buffer);
+
         Ok((
             2 + (param_length as u16),
             if param_type == 2 {
                 let mut bytes_read: i32 = 0;
                 let mut capabilities = Vec::with_capacity(param_length as usize / 2);
                 while bytes_read < param_length as i32 {
-                    let (cap_length, cap) = OpenCapability::parse(stream)?;
+                    let (cap_length, cap) = OpenCapability::parse(&mut cursor)?;
                     capabilities.push(cap);
                     bytes_read += cap_length as i32;
                 }
@@ -389,7 +392,7 @@ impl OpenParameter {
                 }
             } else {
                 let mut value = vec![0; param_length as usize];
-                stream.read_exact(&mut value)?;
+                cursor.read_exact(&mut value)?;
                 OpenParameter::Unknown {
                     param_type,
                     param_length,
@@ -412,6 +415,9 @@ impl OpenParameter {
                         format!("Cannot encode capabilities with length {}", cap_buf.len()),
                     ));
                 }
+
+                buf.write_u8(2)?;
+                buf.write_u8(cap_buf.len() as u8)?;
                 buf.write_all(&cap_buf)
             }
             OpenParameter::Unknown {
@@ -517,19 +523,7 @@ mod tests {
         let mut buffer = std::io::Cursor::new(bytes);
         let (_length, result) = OpenParameter::parse(&mut buffer).unwrap();
 
-        // Now compare bytes for both:
-        let cursor_depth = buffer.position() as usize;
-        // Cursor can add bytes, only take valid bytes
-        let original_bytes = buffer.into_inner()[..cursor_depth].to_vec();
-        let roundtrip_bytes = {
-            let mut rb = vec![];
-            result.encode(&mut rb).unwrap();
-            rb
-        };
-        if original_bytes != roundtrip_bytes {
-            eprintln!("Error roundtripping: {:?}", param);
-            assert_eq!(original_bytes, roundtrip_bytes);
-        }
+        assert_eq!(param, &result);
     }
 
     #[test]
@@ -549,14 +543,12 @@ mod tests {
                 OpenCapability::FourByteASN(3200000001),
                 OpenCapability::FourByteASN(3200000002),
             ]),
-            OpenParameter::Capabilities(vec![OpenCapability::AddPath(vec![
+            OpenParameter::Capabilities(vec![OpenCapability::AddPath(hashset! {
                 (AFI::IPV4, SAFI::Unicast, AddPathDirection::SendPaths),
                 (AFI::IPV6, SAFI::Unicast, AddPathDirection::ReceivePaths),
                 (AFI::IPV4, SAFI::Mpls, AddPathDirection::SendReceivePaths),
                 (AFI::IPV6, SAFI::Mpls, AddPathDirection::SendReceivePaths),
-            ])]),
-            // these next two can't be tested in the same test as the order of HashSet
-            // is non-deterministic
+            })]),
             OpenParameter::Capabilities(vec![OpenCapability::OutboundRouteFiltering(hashset! {
                 (AFI::IPV4, SAFI::Unicast, 10, AddPathDirection::SendPaths),
             })]),
